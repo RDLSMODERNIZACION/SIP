@@ -9,7 +9,7 @@ import {
   getNextCertificateNumber,
   type CertificateCreatePayload,
 } from "@/src/lib/certificatesApi";
-import { getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
+import { createEquipment, getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
 import {
   deleteCatalogItem,
   ensureCatalogItem,
@@ -74,6 +74,15 @@ async function settleCatalogSaves(tasks: Array<Promise<unknown>>) {
   if (rejected.length > 0) {
     console.warn("Algunos catálogos no pudieron guardarse como sugerencia", rejected);
   }
+}
+
+function uniqueEquipment(items: Equipment[]) {
+  const result: Equipment[] = [];
+  items.forEach((item) => {
+    if (!item?.id) return;
+    if (!result.some((current) => current.id === item.id)) result.push(item);
+  });
+  return result;
 }
 
 function textValue(item: CatalogItem, field: keyof CatalogItem = "name") {
@@ -230,25 +239,28 @@ function CatalogAutocomplete({
       </div>
 
       {open && filtered.length > 0 ? (
-        <div className="absolute z-[80] mt-2 max-h-72 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl">
+        <div className="absolute z-[80] mt-2 max-h-72 w-full min-w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl md:min-w-[420px]">
           {filtered.map((item) => {
             const canDelete = Boolean(item.id && item.catalog && onDeleteSuggestion);
             return (
               <div
                 key={`${item.catalog || "local"}-${item.id || item.label}`}
-                className="group flex cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 text-slate-800 hover:bg-slate-100"
+                title={item.label}
+                className="group flex cursor-pointer items-start justify-between gap-3 rounded-lg px-3 py-2 text-slate-800 hover:bg-slate-100"
                 onMouseDown={(event) => {
                   event.preventDefault();
                   onChange(item.label);
                   setOpen(false);
                 }}
               >
-                <span className="min-w-0 truncate font-medium">{item.label}</span>
+                <span className="min-w-0 flex-1 whitespace-normal break-words text-left font-medium leading-snug">
+                  {item.label}
+                </span>
                 {canDelete ? (
                   <button
                     type="button"
                     title="Eliminar sugerencia"
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 opacity-100 hover:bg-red-50 hover:text-red-700 md:opacity-0 md:group-hover:opacity-100"
+                    className="mt-[-2px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 opacity-100 hover:bg-red-50 hover:text-red-700 md:opacity-0 md:group-hover:opacity-100"
                     onMouseDown={(event) => handleDelete(item, event)}
                     disabled={deletingId === item.id}
                   >
@@ -414,6 +426,28 @@ export function CertificateFormModal({
     [equipment, form.brand]
   );
 
+  const serialSuggestions = useMemo(
+    () =>
+      uniqueSuggestionItems([
+        ...equipment
+          .filter((item) => !form.element || sameText(item.element, form.element))
+          .map((item) => ({ label: item.serial_number || "" })),
+        { label: form.serial_number || "" },
+      ]),
+    [equipment, form.element, form.serial_number]
+  );
+
+  const rangeSuggestions = useMemo(
+    () =>
+      uniqueSuggestionItems([
+        ...equipment
+          .filter((item) => !form.element || sameText(item.element, form.element))
+          .map((item) => ({ label: item.range_value || "" })),
+        { label: form.range_value || "" },
+      ]),
+    [equipment, form.element, form.range_value]
+  );
+
   const testTypeSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...testTypes.map((item) => ({ label: textValue(item), id: item.id, catalog: "test-types" as CatalogCode })),
@@ -444,6 +478,92 @@ export function CertificateFormModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo eliminar la sugerencia");
       throw err;
+    }
+  }
+
+  function buildEquipmentName(payload: CertificateCreatePayload) {
+    const parts = [
+      normalizeText(payload.element),
+      normalizeText(payload.type_model),
+      normalizeText(payload.brand),
+    ].filter(Boolean);
+
+    const baseName = parts.length > 0 ? parts.join(" ") : "Equipo sin nombre";
+    const serial = normalizeText(payload.serial_number);
+    return serial ? `${baseName} - Serie ${serial}` : baseName;
+  }
+
+  function findExistingEquipmentReference(payload: CertificateCreatePayload) {
+    const serial = normalizeText(payload.serial_number);
+    const element = normalizeText(payload.element);
+    const typeModel = normalizeText(payload.type_model);
+    const brand = normalizeText(payload.brand);
+    const range = normalizeText(payload.range_value);
+    const unit = normalizeText(payload.unit);
+    const size = normalizeText(payload.size_value);
+
+    if (payload.equipment_id) {
+      return equipment.find((item) => item.id === payload.equipment_id) || null;
+    }
+
+    if (serial) {
+      const bySerial = equipment.find(
+        (item) => item.client_id === payload.client_id && sameText(item.serial_number, serial)
+      );
+      if (bySerial) return bySerial;
+    }
+
+    return (
+      equipment.find(
+        (item) =>
+          item.client_id === payload.client_id &&
+          sameText(item.element, element) &&
+          sameText(item.type_model, typeModel) &&
+          sameText(item.brand, brand) &&
+          sameText(item.range_value, range) &&
+          sameText(item.unit, unit) &&
+          sameText(item.size_value, size)
+      ) || null
+    );
+  }
+
+  async function saveEquipmentReference(payload: CertificateCreatePayload) {
+    const hasUsefulEquipmentData = [
+      payload.element,
+      payload.type_model,
+      payload.brand,
+      payload.serial_number,
+      payload.range_value,
+      payload.unit,
+      payload.size_value,
+    ].some((value) => normalizeText(value));
+
+    if (!payload.client_id || !hasUsefulEquipmentData) return payload;
+
+    const existing = findExistingEquipmentReference(payload);
+    if (existing) {
+      return { ...payload, equipment_id: existing.id };
+    }
+
+    try {
+      const created = await createEquipment({
+        client_id: payload.client_id,
+        name: buildEquipmentName(payload),
+        element: normalizeText(payload.element),
+        type_model: normalizeText(payload.type_model),
+        brand: normalizeText(payload.brand),
+        serial_number: normalizeText(payload.serial_number),
+        range_value: normalizeText(payload.range_value),
+        unit: normalizeText(payload.unit),
+        size_value: normalizeText(payload.size_value),
+        active: true,
+      });
+
+      setEquipment((prev) => uniqueEquipment([...prev, created]));
+      return { ...payload, equipment_id: created.id };
+    } catch (err) {
+      console.warn("No se pudo guardar el equipo como referencia. Se crea el certificado igual.", err);
+      return payload;
     }
   }
 
@@ -556,7 +676,8 @@ export function CertificateFormModal({
         pattern_usages: selectedPatternId ? [{ pattern_id: selectedPatternId }] : [],
       };
       await saveNewCatalogSuggestions(payload);
-      await createCertificatePending(payload);
+      const payloadWithEquipment = await saveEquipmentReference(payload);
+      await createCertificatePending(payloadWithEquipment);
       onCreated();
       onClose();
     } catch (err) {
@@ -702,8 +823,22 @@ export function CertificateFormModal({
                 placeholder="Escribir"
               />
             </Field>
-            <Field label="Serie"><input className={inputClass} value={form.serial_number || ""} onChange={(e) => update("serial_number", e.target.value)} /></Field>
-            <Field label="Rango"><input className={inputClass} value={form.range_value || ""} onChange={(e) => update("range_value", e.target.value)} /></Field>
+            <Field label="Serie">
+              <CatalogAutocomplete
+                value={form.serial_number || ""}
+                suggestions={serialSuggestions}
+                onChange={(value) => update("serial_number", value)}
+                placeholder="Escribir"
+              />
+            </Field>
+            <Field label="Rango">
+              <CatalogAutocomplete
+                value={form.range_value || ""}
+                suggestions={rangeSuggestions}
+                onChange={(value) => update("range_value", value)}
+                placeholder="Escribir"
+              />
+            </Field>
             <Field label="Unidad rango">
               <CatalogAutocomplete
                 value={form.unit || ""}

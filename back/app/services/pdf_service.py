@@ -88,6 +88,11 @@ def _v(value: Any) -> str:
     return str(value)
 
 
+def _display(value: Any) -> str:
+    text = _v(value).strip()
+    return text if text else "—"
+
+
 def _date(value: Any) -> str:
     if value is None:
         return ""
@@ -103,7 +108,7 @@ def _esc(value: Any) -> str:
 
 
 def _p(value: Any, style: ParagraphStyle = P) -> Paragraph:
-    return Paragraph(_esc(value), style)
+    return Paragraph(_esc(_display(value)), style)
 
 
 
@@ -157,7 +162,7 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
     c.roundRect(x, y + h - 8 * mm, w, 8 * mm, 2 * mm, stroke=0, fill=1)
     c.setFillColor(SLATE)
     c.setFont("Helvetica-Bold", 6.8)
-    c.drawString(x + 3 * mm, y + h - 5.2 * mm, "QR DEL CERTIFICADO")
+    c.drawString(x + 3 * mm, y + h - 5.2 * mm, "QR DE VALIDACIÓN")
 
     qr_size = min(h - 13 * mm, 28 * mm)
     try:
@@ -182,7 +187,7 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
     c.drawString(tx, y + h - 15 * mm, "Código")
     c.setFillColor(NAVY)
     c.setFont("Helvetica-Bold", 6.2)
-    max_code = code[:32] + ("…" if len(code) > 32 else "")
+    max_code = code[:24] + ("…" if len(code) > 24 else "")
     c.drawString(tx, y + h - 19 * mm, max_code)
 
     c.setFillColor(MUTED)
@@ -200,10 +205,29 @@ def _set_stroke(c: canvas.Canvas, color=LINE, width: float = 0.55):
 
 
 def _draw_logo(c: canvas.Canvas, x: float, y: float, w: float, h: float):
+    """Dibuja el logo con proporción real, sin agrandarlo de más.
+    Para mejor calidad, usar app/static/branding/sip_logo.png con fondo transparente real.
+    """
     logo_path = BRANDING_DIR / "sip_logo.png"
     if logo_path.exists():
         try:
-            c.drawImage(str(logo_path), x, y, width=w, height=h, preserveAspectRatio=True, mask="auto")
+            reader = ImageReader(str(logo_path))
+            iw, ih = reader.getSize()
+            ratio = iw / ih if ih else 1
+            target_w = w
+            target_h = target_w / ratio
+            if target_h > h:
+                target_h = h
+                target_w = target_h * ratio
+            c.drawImage(
+                reader,
+                x,
+                y + (h - target_h) / 2,
+                width=target_w,
+                height=target_h,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
             return
         except Exception:
             pass
@@ -211,13 +235,12 @@ def _draw_logo(c: canvas.Canvas, x: float, y: float, w: float, h: float):
     # Marca fallback si no hay logo cargado.
     c.saveState()
     c.setFillColor(colors.HexColor("#dc2626"))
-    c.setFont("Helvetica-BoldOblique", 28)
-    c.drawString(x, y + h - 18 * mm, "SIP")
+    c.setFont("Helvetica-BoldOblique", 25)
+    c.drawString(x, y + h - 16 * mm, "SIP")
     c.setFillColor(NAVY)
-    c.setFont("Helvetica-BoldOblique", 9)
-    c.drawString(x, y + 6 * mm, "Instrumentación")
+    c.setFont("Helvetica-BoldOblique", 8)
+    c.drawString(x, y + 5 * mm, "Instrumentación")
     c.restoreState()
-
 
 def _draw_header(c: canvas.Canvas, cert: dict, title: str, page_no: int):
     c.saveState()
@@ -228,14 +251,14 @@ def _draw_header(c: canvas.Canvas, cert: dict, title: str, page_no: int):
     c.setFillColor(WHITE)
     c.rect(x, y, CONTENT_W, header_h, stroke=0, fill=1)
 
-    _draw_logo(c, x, y + 4 * mm, 55 * mm, 24 * mm)
+    _draw_logo(c, x, y + 6 * mm, 47 * mm, 20 * mm)
 
     c.setFillColor(NAVY)
     c.setFont("Helvetica-Bold", 15)
-    c.drawString(x + 63 * mm, y + 22 * mm, title)
+    c.drawString(x + 58 * mm, y + 22 * mm, title)
     c.setFont("Helvetica", 7.5)
     c.setFillColor(MUTED)
-    c.drawString(x + 63 * mm, y + 16 * mm, "Certificado técnico generado por sistema de gestión SIP")
+    c.drawString(x + 58 * mm, y + 16 * mm, "Certificado técnico generado por sistema de gestión SIP")
 
     box_w = 47 * mm
     c.setFillColor(NAVY)
@@ -411,9 +434,11 @@ def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
 
     y = _draw_text_box(c, "Conclusiones", cert.get("conclusions"), y, 17 * mm)
 
-    y = _section_title(c, "Equipos patrón aplicados", y)
-    table_rows = [[_p("Patrón", PSB), _p("Certificado", PSB), _p("Rango", PSB), _p("Calibración", PSB), _p("Recalibración", PSB)]]
-    if patterns:
+    # Equipos patrón: solo se muestra la tabla si hay datos reales.
+    # Evita que una tabla vacía quede mezclada con las firmas al imprimir.
+    if patterns and y > 68 * mm:
+        y = _section_title(c, "Equipos patrón aplicados", y)
+        table_rows = [[_p("Patrón", PSB), _p("Certificado", PSB), _p("Rango", PSB), _p("Calibración", PSB), _p("Recalibración", PSB)]]
         for p in patterns:
             pattern_name = " ".join(filter(None, [_v(p.get("pattern_name")), _v(p.get("pattern_serial_number"))])).strip()
             table_rows.append([
@@ -423,13 +448,8 @@ def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
                 _p(_date(p.get("pattern_calibration_date")), PS),
                 _p(_date(p.get("pattern_recalibration_date")), PS),
             ])
-            if p.get("pattern_certificate_url"):
-                table_rows.append([_p("Certificado patrón", PSB), _p(p.get("pattern_certificate_url"), PS), "", "", ""])
-    else:
-        table_rows.append([_p("", PS), _p("", PS), _p("", PS), _p("", PS), _p("", PS)])
-
-    th = _kv_table(c, table_rows, MARGIN_X, y, [43 * mm, 42 * mm, 32 * mm, 35 * mm, CONTENT_W - 152 * mm], header=True)
-    y -= th + 8 * mm
+        th = _kv_table(c, table_rows, MARGIN_X, y, [43 * mm, 42 * mm, 32 * mm, 35 * mm, CONTENT_W - 152 * mm], header=True)
+        y -= th + 8 * mm
 
     _draw_signature_area(c, cert, 24 * mm)
     _draw_footer(c)
@@ -527,6 +547,6 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     )
     execute(
         "select add_certificate_audit(%s,%s,'pdf_generated',%s,null,null)",
-        [cert_id, user["id"], "PDF moderno formal generado con QR del certificado, sin gráfico."],
+        [cert_id, user["id"], "PDF moderno formal generado con QR, logo optimizado y sin gráfico."],
     )
     return public_url

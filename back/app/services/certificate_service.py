@@ -40,6 +40,34 @@ def can_view_certificate(user, cert):
     return False
 
 
+
+def get_next_certificate_number(prefix: str = "SIP", year: int | None = None):
+    """Devuelve el próximo número correlativo tipo SIP 26-033.
+
+    Se calcula desde la base de datos para no depender del navegador.
+    La restricción UNIQUE de certificates.certificate_number sigue siendo la garantía final.
+    """
+    from datetime import datetime
+
+    yy = str(year or datetime.now().year)[-2:]
+    normalized_prefix = (prefix or "SIP").strip().upper()
+    regex = rf"^{normalized_prefix} {yy}-([0-9]+)$"
+    row = fetch_one(
+        """
+        select coalesce(max((substring(certificate_number from %s))::int), 0) + 1 as next_seq
+        from certificates
+        where certificate_number ~ %s
+        """,
+        [regex, regex],
+    )
+    next_seq = int(row["next_seq"] or 1)
+    return {
+        "certificate_number": f"{normalized_prefix} {yy}-{next_seq:03d}",
+        "prefix": normalized_prefix,
+        "year_suffix": yy,
+        "next_sequence": next_seq,
+    }
+
 def list_certificates(user, status=None, client_id=None, q=None):
     params = []
     where = []
@@ -115,6 +143,10 @@ def create_certificate(payload, user):
     test_rows = data.pop("test_rows", [])
     pattern_usages = data.pop("pattern_usages", [])
     client, equipment = snapshot_client_and_equipment(data["client_id"], data.get("equipment_id"))
+
+    existing = fetch_one("select id from certificates where certificate_number=%s", [data["certificate_number"]])
+    if existing:
+        raise HTTPException(status_code=409, detail="El número de certificado ya existe. Actualizá el número y volvé a intentar.")
 
     if equipment:
         for key in ["element", "type_model", "brand", "serial_number", "range_value", "unit", "size_value"]:

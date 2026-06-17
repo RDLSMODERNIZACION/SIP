@@ -11,6 +11,7 @@ from ..services.certificate_service import (
     approve_certificate,
     reject_certificate,
     annul_certificate,
+    get_next_certificate_number,
 )
 from ..services.qr_service import generate_qr
 from ..services.pdf_service import generate_certificate_pdf
@@ -26,6 +27,11 @@ def list_all(status: str | None = None, client_id: str | None = None, q: str | N
 @router.post("")
 def create(payload: CertificateCreate, user=Depends(require_roles("admin", "certificador"))):
     return create_certificate(payload, user)
+
+
+@router.get("/next-number")
+def next_number(prefix: str = "SIP", year: int | None = None, user=Depends(require_roles("admin", "certificador"))):
+    return get_next_certificate_number(prefix=prefix, year=year)
 
 
 @router.get("/{cert_id}")

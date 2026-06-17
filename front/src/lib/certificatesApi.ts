@@ -67,11 +67,24 @@ export async function getCertificateById(id: string) {
   return apiFetch<CertificateDetail>(`/certificates/${id}`);
 }
 
+export async function getNextCertificateNumber(params?: { prefix?: string; year?: number }) {
+  const search = new URLSearchParams();
+  if (params?.prefix) search.set("prefix", params.prefix);
+  if (params?.year) search.set("year", String(params.year));
+  const query = search.toString() ? `?${search.toString()}` : "";
+  return apiFetch<{ certificate_number: string; prefix: string; year_suffix: string; next_sequence: number }>(`/certificates/next-number${query}`);
+}
+
 export async function createCertificate(payload: CertificateCreatePayload) {
   return apiFetch<CertificateDetail>("/certificates", {
     method: "POST",
     body: JSON.stringify(cleanPayload(payload)),
   });
+}
+
+export async function createCertificatePending(payload: CertificateCreatePayload) {
+  const created = await createCertificate(payload);
+  return submitCertificate(created.certificate.id);
 }
 
 export async function submitCertificate(id: string) {

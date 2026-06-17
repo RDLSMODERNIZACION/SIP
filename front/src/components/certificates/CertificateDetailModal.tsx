@@ -6,7 +6,7 @@ import { Button } from "@/src/components/ui/Button";
 import { Modal } from "@/src/components/ui/Modal";
 import { approveCertificate, deleteCertificate, generatePdf, generateQr, getCertificateById, rejectCertificate, submitCertificate } from "@/src/lib/certificatesApi";
 import { formatDate, formatDateTime } from "@/src/lib/format";
-import { resolveApiUrl } from "@/src/lib/config";
+import { API_BASE_URL, resolveApiUrl } from "@/src/lib/config";
 import { useAuth } from "@/src/context/AuthContext";
 import type { Certificate, CertificateDetail } from "@/src/types";
 import { CertificateFormModal } from "./CertificateFormModal";
@@ -79,6 +79,68 @@ export function CertificateDetailModal({
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo eliminar el certificado");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function normalizeFileUrl(url?: string | null) {
+    if (!url) return "";
+    const resolved = resolveApiUrl(url);
+    return resolved.replace(/^http:\/\/localhost:8000/i, API_BASE_URL);
+  }
+
+  async function handleGenerateQr() {
+    const popup = typeof window !== "undefined" ? window.open("about:blank", "_blank") : null;
+    try {
+      setBusy(true);
+      setError(null);
+      const result = await generateQr(c.id);
+      await load();
+      onChanged();
+
+      const finalUrl = normalizeFileUrl(result?.qr_url);
+      if (finalUrl) {
+        if (popup) {
+          popup.location.href = finalUrl;
+        } else {
+          window.open(finalUrl, "_blank", "noopener,noreferrer");
+        }
+      } else {
+        popup?.close();
+        setError("El QR se generó, pero el backend no devolvió una URL.");
+      }
+    } catch (err) {
+      popup?.close();
+      setError(err instanceof Error ? err.message : "No se pudo generar el QR");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleGeneratePdf() {
+    const popup = typeof window !== "undefined" ? window.open("about:blank", "_blank") : null;
+    try {
+      setBusy(true);
+      setError(null);
+      const result = await generatePdf(c.id);
+      await load();
+      onChanged();
+
+      const finalUrl = normalizeFileUrl(result?.pdf_url);
+      if (finalUrl) {
+        if (popup) {
+          popup.location.href = finalUrl;
+        } else {
+          window.open(finalUrl, "_blank", "noopener,noreferrer");
+        }
+      } else {
+        popup?.close();
+        setError("El PDF se generó, pero el backend no devolvió una URL.");
+      }
+    } catch (err) {
+      popup?.close();
+      setError(err instanceof Error ? err.message : "No se pudo generar el PDF");
     } finally {
       setBusy(false);
     }
@@ -173,9 +235,9 @@ export function CertificateDetailModal({
                 const reason = window.prompt("Motivo del rechazo") || "Rechazado para corrección.";
                 runAction(() => rejectCertificate(c.id, reason));
               }}>Rechazar</Button> : null}
-              {canGenerate ? <Button variant="secondary" disabled={busy} onClick={() => runAction(() => generateQr(c.id))}>Generar QR</Button> : null}
-              {canGenerate ? <Button variant="secondary" disabled={busy} onClick={() => runAction(() => generatePdf(c.id))}>Generar PDF</Button> : null}
-              {c.pdf_url ? <a className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50" href={resolveApiUrl(c.pdf_url)} target="_blank">Abrir PDF</a> : null}
+              {canGenerate ? <Button variant="secondary" disabled={busy} onClick={handleGenerateQr}>Generar QR</Button> : null}
+              {canGenerate ? <Button variant="secondary" disabled={busy} onClick={handleGeneratePdf}>Generar PDF</Button> : null}
+              {c.pdf_url ? <a className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50" href={normalizeFileUrl(c.pdf_url)} target="_blank">Abrir PDF</a> : null}
               {c.validation_hash ? <a className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50" href={`/validar/${c.validation_hash}`} target="_blank">Ver validación pública</a> : null}
             </div>
           </section>
@@ -194,7 +256,7 @@ export function CertificateDetailModal({
                 ) : null}
                 {canDelete ? (
                   <Button variant="danger" disabled={busy} onClick={handleDelete}>
-                    Eliminar 
+                    Eliminar certificado definitivamente
                   </Button>
                 ) : null}
               </div>

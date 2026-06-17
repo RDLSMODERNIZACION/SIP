@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from io import BytesIO
 
+import qrcode
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from ..config import settings
@@ -101,6 +104,94 @@ def _esc(value: Any) -> str:
 
 def _p(value: Any, style: ParagraphStyle = P) -> Paragraph:
     return Paragraph(_esc(value), style)
+
+
+
+
+def _validation_payload(cert: dict) -> str:
+    """Devuelve el texto/código que se codifica en el QR.
+    Preferimos la URL pública de validación si existe; si no, la armamos desde el hash.
+    """
+    public_url = _v(cert.get("public_validation_url")).strip()
+    if public_url:
+        if public_url.startswith("http"):
+            return public_url
+        return f"{settings.PUBLIC_BASE_URL}{public_url}"
+
+    validation_hash = _v(cert.get("validation_hash")).strip()
+    if validation_hash:
+        return f"{settings.PUBLIC_BASE_URL}/public/validate/{validation_hash}"
+
+    certificate_number = _v(cert.get("certificate_number")).strip()
+    return certificate_number or "SIP-CERTIFICADO"
+
+
+def _qr_image_reader(cert: dict):
+    """Genera el QR en memoria a partir del código/URL del certificado.
+    No depende de que exista un PNG previo en disco.
+    """
+    payload = _validation_payload(cert)
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=2,
+    )
+    qr.add_data(payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+    return ImageReader(buffer)
+
+
+def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h: float):
+    """Tarjeta compacta de QR, sin bloque de texto legal ni gráfico."""
+    c.saveState()
+    c.setFillColor(WHITE)
+    _set_stroke(c, LINE, 0.5)
+    c.roundRect(x, y, w, h, 2 * mm, stroke=1, fill=1)
+
+    c.setFillColor(LIGHTER)
+    c.roundRect(x, y + h - 8 * mm, w, 8 * mm, 2 * mm, stroke=0, fill=1)
+    c.setFillColor(SLATE)
+    c.setFont("Helvetica-Bold", 6.8)
+    c.drawString(x + 3 * mm, y + h - 5.2 * mm, "QR DEL CERTIFICADO")
+
+    qr_size = min(h - 13 * mm, 28 * mm)
+    try:
+        c.drawImage(
+            _qr_image_reader(cert),
+            x + 3 * mm,
+            y + 4 * mm,
+            width=qr_size,
+            height=qr_size,
+            preserveAspectRatio=True,
+            mask="auto",
+        )
+    except Exception:
+        c.setFillColor(RED)
+        c.setFont("Helvetica", 6)
+        c.drawString(x + 4 * mm, y + 14 * mm, "QR no disponible")
+
+    code = _v(cert.get("validation_hash")).strip() or _v(cert.get("certificate_number")).strip()
+    tx = x + 3 * mm + qr_size + 4 * mm
+    c.setFillColor(MUTED)
+    c.setFont("Helvetica", 5.8)
+    c.drawString(tx, y + h - 15 * mm, "Código")
+    c.setFillColor(NAVY)
+    c.setFont("Helvetica-Bold", 6.2)
+    max_code = code[:32] + ("…" if len(code) > 32 else "")
+    c.drawString(tx, y + h - 19 * mm, max_code)
+
+    c.setFillColor(MUTED)
+    c.setFont("Helvetica", 5.8)
+    c.drawString(tx, y + h - 26 * mm, "Documento")
+    c.setFillColor(NAVY)
+    c.setFont("Helvetica-Bold", 6.2)
+    c.drawString(tx, y + h - 30 * mm, _v(cert.get("certificate_number")))
+    c.restoreState()
 
 
 def _set_stroke(c: canvas.Canvas, color=LINE, width: float = 0.55):
@@ -385,18 +476,22 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, tests: list[dict]):
     th = _kv_table(c, table_rows, MARGIN_X, y, [45 * mm, 33 * mm, 42 * mm, 30 * mm, CONTENT_W - 150 * mm], header=True)
     y -= th + 8 * mm
 
-    y = _draw_text_box(c, "Comentarios finales", cert.get("final_comments"), y, 20 * mm)
+    y = _draw_text_box(c, "Comentarios finales", cert.get("final_comments"), y, 18 * mm)
 
-    y = _section_title(c, "Notas para impresión y firma", y)
+    y = _section_title(c, "Emisión y control", y)
     notes = (
         "Este documento se emite para su impresión, revisión y firma por el responsable autorizado. "
         "La información técnica declarada corresponde a los datos cargados y aprobados en el sistema de gestión."
     )
-    p = _p(notes, PS)
-    p.wrapOn(c, CONTENT_W - 6 * mm, 14 * mm)
+    left_w = CONTENT_W - 58 * mm
+    box_h = 31 * mm
     c.setFillColor(LIGHTER)
-    c.roundRect(MARGIN_X, y - 17 * mm, CONTENT_W, 17 * mm, 2 * mm, stroke=0, fill=1)
+    c.roundRect(MARGIN_X, y - box_h, left_w - 5 * mm, box_h, 2 * mm, stroke=0, fill=1)
+    p = _p(notes, PS)
+    p.wrapOn(c, left_w - 11 * mm, box_h - 7 * mm)
     p.drawOn(c, MARGIN_X + 3 * mm, y - 13 * mm)
+
+    _draw_qr_card(c, cert, MARGIN_X + left_w, y - box_h, 58 * mm, box_h)
 
     _draw_signature_area(c, cert, 24 * mm)
     _draw_footer(c)
@@ -432,6 +527,6 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     )
     execute(
         "select add_certificate_audit(%s,%s,'pdf_generated',%s,null,null)",
-        [cert_id, user["id"], "PDF moderno formal generado sin gráfico ni validación de autenticidad."],
+        [cert_id, user["id"], "PDF moderno formal generado con QR del certificado, sin gráfico."],
     )
     return public_url

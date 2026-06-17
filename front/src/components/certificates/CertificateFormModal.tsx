@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { Field, inputClass } from "@/src/components/ui/Field";
@@ -180,32 +181,84 @@ function CatalogAutocomplete({
   onDeleteSuggestion?: (item: SuggestionItem) => Promise<void> | void;
 }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
 
   const filtered = useMemo(() => {
     const query = normalizeText(value).toUpperCase();
     const result = query
       ? suggestions.filter((item) => item.label.toUpperCase().includes(query))
       : suggestions;
-    return result.slice(0, 12);
+    return result.slice(0, 20);
   }, [suggestions, value]);
 
+  function updateDropdownPosition() {
+    const input = inputRef.current;
+    if (!input || typeof window === "undefined") return;
+
+    const rect = input.getBoundingClientRect();
+    const margin = 12;
+    const preferredWidth = Math.max(rect.width, 420);
+    const availableWidth = window.innerWidth - margin * 2;
+    const width = Math.min(preferredWidth, availableWidth);
+    let left = rect.left;
+
+    if (left + width > window.innerWidth - margin) {
+      left = window.innerWidth - width - margin;
+    }
+
+    if (left < margin) left = margin;
+
+    const availableBelow = window.innerHeight - rect.bottom - margin;
+    const maxHeight = Math.max(180, Math.min(320, availableBelow));
+
+    setDropdownStyle({
+      position: "fixed",
+      top: rect.bottom + 6,
+      left,
+      width,
+      maxHeight,
+      zIndex: 9999,
+    });
+  }
+
   useEffect(() => {
+    if (!open) return;
+
+    updateDropdownPosition();
+
     function handleClick(event: MouseEvent) {
-      if (!wrapperRef.current) return;
-      if (!wrapperRef.current.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (wrapperRef.current?.contains(target)) return;
+      const dropdown = document.getElementById("catalog-autocomplete-portal");
+      if (dropdown?.contains(target)) return;
+      setOpen(false);
+    }
+
+    function handleReposition() {
+      updateDropdownPosition();
     }
 
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+    window.addEventListener("resize", handleReposition);
+    window.addEventListener("scroll", handleReposition, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("resize", handleReposition);
+      window.removeEventListener("scroll", handleReposition, true);
+    };
+  }, [open, filtered.length]);
 
   async function handleDelete(item: SuggestionItem, event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
+
     const canDeleteCatalog = Boolean(item.id && item.catalog);
     if (!canDeleteCatalog || !onDeleteSuggestion) return;
+
     const confirmed = window.confirm(`¿Eliminar "${item.label}" de las sugerencias?`);
     if (!confirmed) return;
 
@@ -218,64 +271,83 @@ function CatalogAutocomplete({
     }
   }
 
+  const dropdown =
+    open && filtered.length > 0 && dropdownStyle
+      ? createPortal(
+          <div
+            id="catalog-autocomplete-portal"
+            style={dropdownStyle}
+            className="overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-2xl"
+          >
+            {filtered.map((item) => {
+              const canDelete = Boolean(item.id && item.catalog && onDeleteSuggestion);
+              const deleteKey = item.id || item.label;
+              return (
+                <div
+                  key={`${item.catalog || "local"}-${item.id || item.label}`}
+                  title={item.label}
+                  className="group flex cursor-pointer items-start justify-between gap-3 rounded-lg px-3 py-2 text-slate-800 hover:bg-slate-100"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    onChange(item.label);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="min-w-0 flex-1 whitespace-normal break-words text-left font-medium leading-snug">
+                    {item.label}
+                  </span>
+
+                  {canDelete ? (
+                    <button
+                      type="button"
+                      title="Eliminar sugerencia"
+                      aria-label={`Eliminar ${item.label}`}
+                      className="mt-[-2px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 opacity-100 hover:bg-red-50 hover:text-red-700"
+                      onMouseDown={(event) => handleDelete(item, event)}
+                      disabled={deletingId === deleteKey}
+                    >
+                      {deletingId === deleteKey ? "…" : "×"}
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>,
+          document.body
+        )
+      : null;
+
   return (
     <div ref={wrapperRef} className="relative">
       <div className="relative">
         <input
+          ref={inputRef}
           className={`${inputClass} pr-10`}
           value={value}
           onChange={(event) => {
             onChange(event.target.value);
             setOpen(true);
+            requestAnimationFrame(updateDropdownPosition);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            requestAnimationFrame(updateDropdownPosition);
+          }}
           placeholder={placeholder}
         />
         <button
           type="button"
           className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-slate-500 hover:text-slate-900"
-          onClick={() => setOpen((current) => !current)}
+          onClick={() => {
+            setOpen((current) => !current);
+            requestAnimationFrame(updateDropdownPosition);
+          }}
           aria-label="Mostrar sugerencias"
         >
           ▾
         </button>
       </div>
-
-      {open && filtered.length > 0 ? (
-        <div className="absolute z-[80] mt-2 max-h-72 w-full min-w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl md:min-w-[420px]">
-          {filtered.map((item) => {
-            const canDelete = Boolean(item.id && item.catalog && onDeleteSuggestion);
-            const deleteKey = item.id || item.label;
-            return (
-              <div
-                key={`${item.catalog || "local"}-${item.id || item.label}`}
-                title={item.label}
-                className="group flex cursor-pointer items-start justify-between gap-3 rounded-lg px-3 py-2 text-slate-800 hover:bg-slate-100"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  onChange(item.label);
-                  setOpen(false);
-                }}
-              >
-                <span className="min-w-0 flex-1 whitespace-normal break-words text-left font-medium leading-snug">
-                  {item.label}
-                </span>
-                {canDelete ? (
-                  <button
-                    type="button"
-                    title="Eliminar sugerencia"
-                    className="mt-[-2px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 opacity-100 hover:bg-red-50 hover:text-red-700 md:opacity-0 md:group-hover:opacity-100"
-                    onMouseDown={(event) => handleDelete(item, event)}
-                    disabled={deletingId === deleteKey}
-                  >
-                    {deletingId === deleteKey ? "…" : "×"}
-                  </button>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+      {dropdown}
     </div>
   );
 }

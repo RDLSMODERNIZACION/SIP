@@ -62,13 +62,13 @@ export default function ClientsView() {
   }
 
   async function remove(client: Client) {
-    const ok = window.confirm(`¿Querés desactivar ${client.name}? No se elimina definitivamente, queda inactivo.`);
+    const ok = window.confirm(`¿Querés eliminar definitivamente ${client.name}? Esta acción no se puede deshacer.`);
     if (!ok) return;
     try {
-      await deleteClient(client.id);
+      await deleteClient(client.id, true);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo desactivar cliente");
+      setError(err instanceof Error ? err.message : "No se pudo eliminar cliente");
     }
   }
 
@@ -114,7 +114,7 @@ export default function ClientsView() {
                       <td className="p-4">
                         <div className="flex justify-end gap-2">
                           <Button type="button" variant="secondary" onClick={() => openEdit(c)}>Editar</Button>
-                          {canDelete && c.active !== false ? <Button type="button" variant="danger" onClick={() => remove(c)}>Desactivar</Button> : null}
+                          {canDelete ? <Button type="button" variant="danger" onClick={() => remove(c)}>Eliminar</Button> : null}
                         </div>
                       </td>
                     ) : null}
@@ -125,12 +125,24 @@ export default function ClientsView() {
           ) : null}
         </CardContent>
       </Card>
-      <ClientModal open={open} client={editing} onClose={() => setOpen(false)} onSaved={load} />
+      <ClientModal open={open} client={editing} canDelete={canDelete} onClose={() => setOpen(false)} onSaved={load} />
     </AppShell>
   );
 }
 
-function ClientModal({ open, client, onClose, onSaved }: { open: boolean; client: Client | null; onClose: () => void; onSaved: () => void }) {
+function ClientModal({
+  open,
+  client,
+  canDelete,
+  onClose,
+  onSaved,
+}: {
+  open: boolean;
+  client: Client | null;
+  canDelete: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [form, setForm] = useState(emptyClientForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +177,24 @@ function ClientModal({ open, client, onClose, onSaved }: { open: boolean; client
     finally { setSaving(false); }
   }
 
+  async function removeFromEdit() {
+    if (!client?.id) return;
+    const ok = window.confirm(`¿Querés eliminar definitivamente ${client.name}? Esta acción no se puede deshacer.`);
+    if (!ok) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+      await deleteClient(client.id, true);
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar el cliente");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <Modal open={open} onClose={onClose} title={client ? "Editar cliente" : "Nuevo cliente"}>
       <form onSubmit={submit} className="space-y-4">
@@ -182,9 +212,29 @@ function ClientModal({ open, client, onClose, onSaved }: { open: boolean; client
           <label className="flex items-center gap-2 pt-7 text-sm font-semibold text-slate-700"><input type="checkbox" checked={form.active} onChange={(e)=>setForm({...form,active:e.target.checked})} /> Activo</label>
         </div>
         <Field label="Notas"><textarea className={inputClass} rows={3} value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} /></Field>
-        <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-          <Button disabled={saving}>{saving ? "Guardando..." : "Guardar"}</Button>
+        <div className="border-t border-slate-100 pt-4">
+          {client?.id && canDelete ? (
+            <div className="mb-4 rounded-2xl border border-red-100 bg-red-50 p-4">
+              <div className="text-sm font-bold text-red-900">Zona de eliminación</div>
+              <p className="mt-1 text-xs leading-5 text-red-700">
+                El cliente se eliminará definitivamente de la base de datos. Esta acción no se puede deshacer.
+              </p>
+              <Button
+                type="button"
+                variant="danger"
+                onClick={removeFromEdit}
+                disabled={saving}
+                className="mt-3"
+              >
+                Eliminar cliente
+              </Button>
+            </div>
+          ) : null}
+
+          <div className="flex justify-end gap-3">
+            <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+            <Button disabled={saving}>{saving ? "Guardando..." : "Guardar"}</Button>
+          </div>
         </div>
       </form>
     </Modal>

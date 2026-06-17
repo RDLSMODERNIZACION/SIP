@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .config import settings
-from .routers import health, auth, users, roles, clients, equipment, patterns, certificates, public
+from .routers import health, auth, users, roles, clients, equipment, patterns, certificates, catalogs, public
 
 app = FastAPI(
     title="SIP Certificados Digitales API",
@@ -28,4 +28,5 @@ app.include_router(clients.router)
 app.include_router(equipment.router)
 app.include_router(patterns.router)
 app.include_router(certificates.router)
+app.include_router(catalogs.router)
 app.include_router(public.router)

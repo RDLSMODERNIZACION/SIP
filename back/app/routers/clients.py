@@ -74,3 +74,14 @@ def client_summary(client_id: str, user=Depends(get_current_user)):
         "rechazados": 0,
         "anulados": 0,
     }
+
+
+@router.delete("/{client_id}")
+def delete_client(client_id: str, hard: bool = False, user=Depends(require_roles("admin"))):
+    if hard:
+        row = execute("delete from clients where id=%s returning *", [client_id])
+    else:
+        row = execute("update clients set active=false where id=%s returning *", [client_id])
+    if not row:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    return {"ok": True, "client": row}

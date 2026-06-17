@@ -10,12 +10,18 @@ import {
   type CertificateCreatePayload,
 } from "@/src/lib/certificatesApi";
 import { getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
+import { getCatalogItems, type CatalogItem } from "@/src/lib/catalogsApi";
 import type { Client, Equipment, Pattern } from "@/src/types";
 
 const FIXED_CERTIFICATE_CODE = "CE-SIP-01";
 const FIXED_CERTIFICATE_REVISION = "5";
 const FIXED_CERTIFICATE_VALIDITY = "2024-10-01";
 const DEFAULT_FREQUENCY_MONTHS = 60;
+
+function textValue(item: CatalogItem, field: keyof CatalogItem = "name") {
+  const value = item[field];
+  return value === null || value === undefined ? "" : String(value);
+}
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -103,6 +109,13 @@ export function CertificateFormModal({
   const [clients, setClients] = useState<Client[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [patterns, setPatterns] = useState<Pattern[]>([]);
+  const [units, setUnits] = useState<CatalogItem[]>([]);
+  const [testTypes, setTestTypes] = useState<CatalogItem[]>([]);
+  const [elements, setElements] = useState<CatalogItem[]>([]);
+  const [elementModels, setElementModels] = useState<CatalogItem[]>([]);
+  const [sizes, setSizes] = useState<CatalogItem[]>([]);
+  const [frequencies, setFrequencies] = useState<CatalogItem[]>([]);
+  const [pressureRows, setPressureRows] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingNumber, setLoadingNumber] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,20 +136,50 @@ export function CertificateFormModal({
   async function loadResources() {
     setError(null);
     setLoadingNumber(true);
-    const [c, e, p, next] = await Promise.all([
+    const [c, e, p, next, catUnits, catTestTypes, catElements, catElementModels, catSizes, catFrequencies, catPressureRows] = await Promise.all([
       getClients(),
       getEquipment(),
       getPatterns(),
       getNextCertificateNumber({ prefix: "SIP" }),
+      getCatalogItems("units", { active: true }),
+      getCatalogItems("test-types", { active: true }),
+      getCatalogItems("elements", { active: true }),
+      getCatalogItems("element-models", { active: true }),
+      getCatalogItems("sizes", { active: true }),
+      getCatalogItems("frequencies", { active: true }),
+      getCatalogItems("pressure-rows", { active: true }),
     ]);
     setClients(c);
     setEquipment(e);
     setPatterns(p);
+    setUnits(catUnits);
+    setTestTypes(catTestTypes);
+    setElements(catElements);
+    setElementModels(catElementModels);
+    setSizes(catSizes);
+    setFrequencies(catFrequencies);
+    setPressureRows(catPressureRows);
     setSelectedPatternId("");
     setAllowHeaderEdit(false);
+    const baseForm = defaultForm(next.certificate_number);
+    const defaultRows = catPressureRows.length > 0
+      ? catPressureRows.map((row, index) => ({
+          row_order: Number(row.row_order || index + 1),
+          pressure_label: textValue(row),
+          range_value: index === 0 ? 185 : null,
+          unit: catUnits.find((u) => textValue(u) === "PSI") ? "PSI" : textValue(catUnits[0]) || "PSI",
+          acceptance_criteria: index === 0 ? undefined : "SIN ERROR",
+          result: index === 0 ? undefined : "POSITIVO",
+          observations: index === 0 ? undefined : "OK",
+        }))
+      : baseForm.test_rows;
     setForm({
-      ...defaultForm(next.certificate_number),
+      ...baseForm,
       client_id: c[0]?.id || "",
+      measurement_unit: textValue(catUnits.find((u) => textValue(u) === "PSI") || catUnits[0]) || baseForm.measurement_unit,
+      unit: textValue(catUnits.find((u) => textValue(u) === "PSI") || catUnits[0]) || baseForm.unit,
+      test_type: textValue(catTestTypes[0]) || baseForm.test_type,
+      test_rows: defaultRows,
     });
     setLoadingNumber(false);
   }
@@ -153,6 +196,11 @@ export function CertificateFormModal({
   const filteredEquipment = useMemo(
     () => equipment.filter((e) => e.client_id === form.client_id),
     [equipment, form.client_id]
+  );
+
+  const filteredElementModels = useMemo(
+    () => elementModels.filter((m) => !form.element || String(m.element_name || "").toUpperCase() === String(form.element || "").toUpperCase()),
+    [elementModels, form.element]
   );
 
   function update<K extends keyof CertificateCreatePayload>(key: K, value: CertificateCreatePayload[K]) {
@@ -328,8 +376,13 @@ export function CertificateFormModal({
             <Field label="Fecha calibración">
               <input className={inputClass} type="date" value={form.calibration_date || ""} onChange={(e) => updateCalibrationDate(e.target.value)} />
             </Field>
-            <Field label="Frecuencia meses">
-              <input className={inputClass} type="number" value={form.test_frequency_months || ""} onChange={(e) => updateFrequency(Number(e.target.value || DEFAULT_FREQUENCY_MONTHS))} />
+            <Field label="Frecuencia">
+              <select className={inputClass} value={form.test_frequency_months || ""} onChange={(e) => updateFrequency(Number(e.target.value || DEFAULT_FREQUENCY_MONTHS))}>
+                {frequencies.length === 0 ? <option value={form.test_frequency_months || DEFAULT_FREQUENCY_MONTHS}>{form.test_frequency_months || DEFAULT_FREQUENCY_MONTHS} meses</option> : null}
+                {frequencies.map((f) => (
+                  <option key={f.id} value={Number(f.months || 0)}>{f.name || `${f.months} MESES`}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Vencimiento">
               <input className={inputClass} type="date" value={form.expiration_date || ""} onChange={(e) => update("expiration_date", e.target.value)} />
@@ -343,20 +396,51 @@ export function CertificateFormModal({
         <section className="space-y-4">
           <h3 className="text-sm font-bold text-slate-900">Datos del equipo</h3>
           <div className="grid gap-4 md:grid-cols-4">
-            <Field label="Elemento"><input className={inputClass} value={form.element || ""} onChange={(e) => update("element", e.target.value)} /></Field>
-            <Field label="Tipo / Modelo"><input className={inputClass} value={form.type_model || ""} onChange={(e) => update("type_model", e.target.value)} /></Field>
+            <Field label="Elemento">
+              <select className={inputClass} value={form.element || ""} onChange={(e) => setForm((prev) => ({ ...prev, element: e.target.value, type_model: "" }))}>
+                <option value="">Seleccionar</option>
+                {elements.map((el) => <option key={el.id} value={textValue(el)}>{textValue(el)}</option>)}
+              </select>
+            </Field>
+            <Field label="Tipo / Modelo">
+              <select className={inputClass} value={form.type_model || ""} onChange={(e) => update("type_model", e.target.value)}>
+                <option value="">Seleccionar</option>
+                {filteredElementModels.map((m) => <option key={m.id} value={textValue(m, "full_name")}>{textValue(m, "full_name")}</option>)}
+              </select>
+            </Field>
             <Field label="Marca"><input className={inputClass} value={form.brand || ""} onChange={(e) => update("brand", e.target.value)} /></Field>
             <Field label="Serie"><input className={inputClass} value={form.serial_number || ""} onChange={(e) => update("serial_number", e.target.value)} /></Field>
             <Field label="Rango"><input className={inputClass} value={form.range_value || ""} onChange={(e) => update("range_value", e.target.value)} /></Field>
-            <Field label="Unidad rango"><input className={inputClass} value={form.unit || ""} onChange={(e) => update("unit", e.target.value)} /></Field>
-            <Field label="Size"><input className={inputClass} value={form.size_value || ""} onChange={(e) => update("size_value", e.target.value)} /></Field>
-            <Field label="Unidad ensayo"><input className={inputClass} value={form.measurement_unit || ""} onChange={(e) => update("measurement_unit", e.target.value)} /></Field>
+            <Field label="Unidad rango">
+              <select className={inputClass} value={form.unit || ""} onChange={(e) => update("unit", e.target.value)}>
+                <option value="">Seleccionar</option>
+                {units.map((u) => <option key={u.id} value={textValue(u)}>{textValue(u)}</option>)}
+              </select>
+            </Field>
+            <Field label="Size">
+              <select className={inputClass} value={form.size_value || ""} onChange={(e) => update("size_value", e.target.value)}>
+                <option value="">Seleccionar</option>
+                {sizes.map((s) => <option key={s.id} value={textValue(s)}>{textValue(s)}</option>)}
+              </select>
+            </Field>
+            <Field label="Unidad ensayo">
+              <select className={inputClass} value={form.measurement_unit || ""} onChange={(e) => update("measurement_unit", e.target.value)}>
+                <option value="">Seleccionar</option>
+                {units.map((u) => <option key={u.id} value={textValue(u)}>{textValue(u)}</option>)}
+              </select>
+            </Field>
           </div>
         </section>
 
         <section className="space-y-4">
           <h3 className="text-sm font-bold text-slate-900">Ensayo y resultado</h3>
           <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Tipo de prueba">
+              <select className={inputClass} value={form.test_type || ""} onChange={(e) => update("test_type", e.target.value)}>
+                <option value="">Seleccionar</option>
+                {testTypes.map((t) => <option key={t.id} value={textValue(t)}>{textValue(t)}</option>)}
+              </select>
+            </Field>
             <Field label="Método / protocolo"><textarea className={inputClass} rows={4} value={form.reference_method || ""} onChange={(e) => update("reference_method", e.target.value)} /></Field>
             <Field label="Conclusiones"><textarea className={inputClass} rows={4} value={form.conclusions || ""} onChange={(e) => update("conclusions", e.target.value)} /></Field>
             <Field label="Condiciones ambientales"><textarea className={inputClass} rows={3} value={form.environmental_conditions || ""} onChange={(e) => update("environmental_conditions", e.target.value)} /></Field>

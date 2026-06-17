@@ -26,6 +26,15 @@ export async function getClientSummary(clientId: string) {
   return apiFetch<CertificateSummary>(`/clients/${clientId}/summary`);
 }
 
+export async function updateClient(id: string, payload: Partial<Client>) {
+  return apiFetch<Client>(`/clients/${id}`, { method: "PATCH", body: JSON.stringify(cleanPayload(payload)) });
+}
+
+export async function deleteClient(id: string, hard = false) {
+  const query = hard ? "?hard=true" : "";
+  return apiFetch<{ ok: boolean }>(`/clients/${id}${query}`, { method: "DELETE" });
+}
+
 export async function getEquipment(params?: { client_id?: string; q?: string }) {
   const search = new URLSearchParams();
   if (params?.client_id) search.set("client_id", params.client_id);

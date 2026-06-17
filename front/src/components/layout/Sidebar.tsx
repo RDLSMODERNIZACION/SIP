@@ -10,6 +10,7 @@ const items = [
   { href: "/clientes", label: "Clientes", roles: ["admin", "certificador", "aprobador"] },
   { href: "/equipos", label: "Equipos", roles: ["admin", "certificador", "aprobador", "cliente"] },
   { href: "/patrones", label: "Patrones", roles: ["admin", "certificador", "aprobador"] },
+  { href: "/catalogos", label: "Catálogos", roles: ["admin"] },
   { href: "/usuarios", label: "Usuarios", roles: ["admin"] },
 ];
 

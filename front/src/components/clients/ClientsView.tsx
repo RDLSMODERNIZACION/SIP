@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader } from "@/src/components/ui/Card";
 import { EmptyState } from "@/src/components/ui/EmptyState";
 import { Field, inputClass } from "@/src/components/ui/Field";
 import { Modal } from "@/src/components/ui/Modal";
-import { createClient, deleteClient, getClients, updateClient } from "@/src/lib/resourcesApi";
+import { createClient, deactivateClient, deleteClient, getClients, updateClient } from "@/src/lib/resourcesApi";
 import { useAuth } from "@/src/context/AuthContext";
 import type { Client } from "@/src/types";
 
@@ -49,7 +49,10 @@ export default function ClientsView() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function openNew() {
     setEditing(null);
@@ -61,14 +64,19 @@ export default function ClientsView() {
     setOpen(true);
   }
 
-  async function remove(client: Client) {
-    const ok = window.confirm(`¿Querés eliminar definitivamente ${client.name}? Esta acción no se puede deshacer.`);
-    if (!ok) return;
+  async function toggleActive(client: Client) {
     try {
-      await deleteClient(client.id, true);
+      setError(null);
+      if (client.active === false) {
+        await updateClient(client.id, { active: true });
+      } else {
+        const ok = window.confirm(`¿Querés desactivar ${client.name}? No se borra el historial.`);
+        if (!ok) return;
+        await deactivateClient(client.id);
+      }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo eliminar cliente");
+      setError(err instanceof Error ? err.message : "No se pudo cambiar el estado del cliente");
     }
   }
 
@@ -82,15 +90,26 @@ export default function ClientsView() {
         />
         <CardContent>
           <div className="mb-5 grid gap-3 md:grid-cols-[1fr_auto]">
-            <Field label="Buscar"><input className={inputClass} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre, CUIT o email" /></Field>
-            <div className="flex items-end"><Button variant="secondary" onClick={load}>Buscar</Button></div>
+            <Field label="Buscar">
+              <input
+                className={inputClass}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Nombre, CUIT o email"
+              />
+            </Field>
+            <div className="flex items-end">
+              <Button variant="secondary" onClick={load}>Buscar</Button>
+            </div>
           </div>
+
           {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
           {loading ? <div className="text-sm text-slate-500">Cargando...</div> : null}
           {!loading && clients.length === 0 ? <EmptyState title="No hay clientes" /> : null}
+
           {clients.length > 0 ? (
             <div className="overflow-x-auto rounded-2xl border border-slate-100">
-              <table className="w-full min-w-[900px] text-sm">
+              <table className="w-full min-w-[920px] text-sm">
                 <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                   <tr>
                     <th className="p-4">Cliente</th>
@@ -102,30 +121,51 @@ export default function ClientsView() {
                     {canManage ? <th className="p-4 text-right">Acciones</th> : null}
                   </tr>
                 </thead>
-                <tbody>{clients.map((c) => (
-                  <tr key={c.id} className="border-t border-slate-100">
-                    <td className="p-4 font-bold">{c.name}</td>
-                    <td className="p-4">{c.cuit || "—"}</td>
-                    <td className="p-4">{c.email || c.phone || "—"}</td>
-                    <td className="p-4">{[c.city, c.province].filter(Boolean).join(", ") || "—"}</td>
-                    <td className="p-4 max-w-[260px] truncate">{c.notes || "—"}</td>
-                    <td className="p-4">{c.active === false ? "Inactivo" : "Activo"}</td>
-                    {canManage ? (
+                <tbody>
+                  {clients.map((c) => (
+                    <tr key={c.id} className="border-t border-slate-100">
+                      <td className="p-4 font-bold">{c.name}</td>
+                      <td className="p-4">{c.cuit || "—"}</td>
+                      <td className="p-4">{c.email || c.phone || "—"}</td>
+                      <td className="p-4">{[c.city, c.province].filter(Boolean).join(", ") || "—"}</td>
+                      <td className="max-w-[260px] truncate p-4">{c.notes || "—"}</td>
                       <td className="p-4">
-                        <div className="flex justify-end gap-2">
-                          <Button type="button" variant="secondary" onClick={() => openEdit(c)}>Editar</Button>
-                          {canDelete ? <Button type="button" variant="danger" onClick={() => remove(c)}>Eliminar</Button> : null}
-                        </div>
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${c.active === false ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700"}`}>
+                          {c.active === false ? "Inactivo" : "Activo"}
+                        </span>
                       </td>
-                    ) : null}
-                  </tr>
-                ))}</tbody>
+                      {canManage ? (
+                        <td className="p-4">
+                          <div className="flex justify-end gap-2">
+                            <Button type="button" variant="secondary" onClick={() => openEdit(c)}>Editar</Button>
+                            {canDelete ? (
+                              <Button
+                                type="button"
+                                variant={c.active === false ? "secondary" : "danger"}
+                                onClick={() => toggleActive(c)}
+                              >
+                                {c.active === false ? "Activar" : "Desactivar"}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           ) : null}
         </CardContent>
       </Card>
-      <ClientModal open={open} client={editing} canDelete={canDelete} onClose={() => setOpen(false)} onSaved={load} />
+
+      <ClientModal
+        open={open}
+        client={editing}
+        canDelete={canDelete}
+        onClose={() => setOpen(false)}
+        onSaved={load}
+      />
     </AppShell>
   );
 }
@@ -169,24 +209,31 @@ function ClientModal({
   async function submit(e: FormEvent) {
     e.preventDefault();
     try {
-      setSaving(true); setError(null);
+      setSaving(true);
+      setError(null);
       if (client?.id) await updateClient(client.id, form);
       else await createClient(form);
-      onSaved(); onClose();
-    } catch (err) { setError(err instanceof Error ? err.message : "No se pudo guardar"); }
-    finally { setSaving(false); }
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo guardar");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function removeFromEdit() {
     if (!client?.id) return;
-    const ok = window.confirm(`¿Querés eliminar definitivamente ${client.name}? Esta acción no se puede deshacer.`);
-    if (!ok) return;
+    const text = window.prompt(
+      `Para eliminar definitivamente ${client.name}, escribí ELIMINAR.\n\nEsto borra el cliente y sus datos asociados.`
+    );
+    if (text !== "ELIMINAR") return;
 
     try {
       setSaving(true);
       setError(null);
-      await deleteClient(client.id, true);
-      onSaved();
+      await deleteClient(client.id);
+      await onSaved();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo eliminar el cliente");
@@ -199,6 +246,7 @@ function ClientModal({
     <Modal open={open} onClose={onClose} title={client ? "Editar cliente" : "Nuevo cliente"}>
       <form onSubmit={submit} className="space-y-4">
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
+
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Nombre"><input className={inputClass} value={form.name} onChange={(e)=>setForm({...form,name:e.target.value})} required /></Field>
           <Field label="Razón social"><input className={inputClass} value={form.legal_name} onChange={(e)=>setForm({...form,legal_name:e.target.value})} /></Field>
@@ -209,15 +257,19 @@ function ClientModal({
           <Field label="Ciudad"><input className={inputClass} value={form.city} onChange={(e)=>setForm({...form,city:e.target.value})} /></Field>
           <Field label="Provincia"><input className={inputClass} value={form.province} onChange={(e)=>setForm({...form,province:e.target.value})} /></Field>
           <Field label="País"><input className={inputClass} value={form.country} onChange={(e)=>setForm({...form,country:e.target.value})} /></Field>
-          <label className="flex items-center gap-2 pt-7 text-sm font-semibold text-slate-700"><input type="checkbox" checked={form.active} onChange={(e)=>setForm({...form,active:e.target.checked})} /> Activo</label>
+          <label className="flex items-center gap-2 pt-7 text-sm font-semibold text-slate-700">
+            <input type="checkbox" checked={form.active} onChange={(e)=>setForm({...form,active:e.target.checked})} /> Activo
+          </label>
         </div>
+
         <Field label="Notas"><textarea className={inputClass} rows={3} value={form.notes} onChange={(e)=>setForm({...form,notes:e.target.value})} /></Field>
+
         <div className="border-t border-slate-100 pt-4">
           {client?.id && canDelete ? (
             <div className="mb-4 rounded-2xl border border-red-100 bg-red-50 p-4">
-              <div className="text-sm font-bold text-red-900">Zona de eliminación</div>
+              <div className="text-sm font-bold text-red-900">Zona de eliminación definitiva</div>
               <p className="mt-1 text-xs leading-5 text-red-700">
-                El cliente se eliminará definitivamente de la base de datos. Esta acción no se puede deshacer.
+                Esta opción elimina el cliente de la base. Usala solo si fue cargado por error. Para ocultarlo del uso normal, usá Desactivar desde la tabla.
               </p>
               <Button
                 type="button"
@@ -226,7 +278,7 @@ function ClientModal({
                 disabled={saving}
                 className="mt-3"
               >
-                Eliminar cliente
+                Eliminar cliente definitivamente
               </Button>
             </div>
           ) : null}

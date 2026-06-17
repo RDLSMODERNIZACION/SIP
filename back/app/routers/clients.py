@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from ..auth import require_roles, get_current_user
 from ..models import ClientCreate, ClientUpdate
-from ..db import fetch_one, fetch_all, execute
+from ..db import fetch_one, fetch_all, execute, get_conn
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
 
@@ -62,6 +62,51 @@ def update_client(client_id: str, payload: ClientUpdate, user=Depends(require_ro
     return row
 
 
+@router.delete("/{client_id}")
+def delete_client(client_id: str, hard: bool = False, user=Depends(require_roles("admin"))):
+    """
+    hard=false: desactiva el cliente, sin borrar historial.
+    hard=true: elimina definitivamente el cliente y los datos dependientes.
+
+    La eliminación definitiva borra certificados, equipos y relaciones del cliente,
+    y desvincula usuarios asociados para evitar errores por claves foráneas.
+    """
+    client = fetch_one("select id, name from clients where id=%s", [client_id])
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    if not hard:
+        row = execute("update clients set active=false where id=%s returning id, name, active", [client_id])
+        return {"ok": True, "mode": "deactivated", "client": row}
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                # Borra primero certificados del cliente. Las tablas hijas de certificados
+                # tienen ON DELETE CASCADE según la migración principal.
+                cur.execute("delete from certificates where client_id=%s", [client_id])
+
+                # Elimina relaciones de usuarios del cliente y desvincula usuarios tipo cliente.
+                cur.execute("delete from client_users where client_id=%s", [client_id])
+                cur.execute("update app_users set client_id=null where client_id=%s", [client_id])
+
+                # Borra equipos y finalmente el cliente.
+                cur.execute("delete from equipment where client_id=%s", [client_id])
+                cur.execute("delete from clients where id=%s returning id, name", [client_id])
+                deleted = cur.fetchone()
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        return {"ok": True, "mode": "deleted", "client": deleted}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"No se pudo eliminar definitivamente el cliente. Revisá si tiene relaciones no contempladas. Detalle: {exc}",
+        )
+
+
 @router.get("/{client_id}/summary")
 def client_summary(client_id: str, user=Depends(get_current_user)):
     return fetch_one("select * from v_client_certificate_summary where client_id=%s", [client_id]) or {
@@ -74,14 +119,3 @@ def client_summary(client_id: str, user=Depends(get_current_user)):
         "rechazados": 0,
         "anulados": 0,
     }
-
-
-@router.delete("/{client_id}")
-def delete_client(client_id: str, hard: bool = False, user=Depends(require_roles("admin"))):
-    if hard:
-        row = execute("delete from clients where id=%s returning *", [client_id])
-    else:
-        row = execute("update clients set active=false where id=%s returning *", [client_id])
-    if not row:
-        raise HTTPException(status_code=404, detail="Cliente no encontrado")
-    return {"ok": True, "client": row}

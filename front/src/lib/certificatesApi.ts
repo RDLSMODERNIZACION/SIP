@@ -87,6 +87,20 @@ export async function createCertificatePending(payload: CertificateCreatePayload
   return submitCertificate(created.certificate.id);
 }
 
+export async function updateCertificate(id: string, payload: Partial<CertificateCreatePayload>) {
+  return apiFetch<CertificateDetail>(`/certificates/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(cleanPayload(payload)),
+  });
+}
+
+export async function deleteCertificate(id: string, hard = true) {
+  const query = hard ? "?hard=true" : "";
+  return apiFetch<{ ok: boolean; deleted_id: string }>(`/certificates/${id}${query}`, {
+    method: "DELETE",
+  });
+}
+
 export async function submitCertificate(id: string) {
   return apiFetch<CertificateDetail>(`/certificates/${id}/submit`, { method: "POST" });
 }

@@ -7,7 +7,9 @@ import { Button } from "@/src/components/ui/Button";
 import { Field, inputClass } from "@/src/components/ui/Field";
 import {
   createCertificatePending,
+  getCertificateById,
   getNextCertificateNumber,
+  updateCertificate,
   type CertificateCreatePayload,
 } from "@/src/lib/certificatesApi";
 import { createEquipment, getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
@@ -18,7 +20,7 @@ import {
   type CatalogCode,
   type CatalogItem,
 } from "@/src/lib/catalogsApi";
-import type { Client, Equipment, Pattern } from "@/src/types";
+import type { CertificateDetail, Client, Equipment, Pattern } from "@/src/types";
 
 const FIXED_CERTIFICATE_CODE = "CE-SIP-01";
 const FIXED_CERTIFICATE_REVISION = "5";
@@ -160,6 +162,54 @@ function defaultForm(certificateNumber = ""): CertificateCreatePayload {
       { row_order: 6, pressure_label: "PRESIÓN DE PRUEBA N°5", range_value: null, unit: "PSI" },
     ],
     pattern_usages: [],
+  };
+}
+
+
+function detailToForm(detail: CertificateDetail): CertificateCreatePayload {
+  const c = detail.certificate;
+  return {
+    certificate_number: c.certificate_number || "",
+    certificate_code: c.certificate_code || FIXED_CERTIFICATE_CODE,
+    certificate_revision: c.certificate_revision || FIXED_CERTIFICATE_REVISION,
+    certificate_validity: c.certificate_validity || FIXED_CERTIFICATE_VALIDITY,
+    client_id: c.client_id || "",
+    equipment_id: c.equipment_id || null,
+    purchase_order: null,
+    calibration_date: c.calibration_date || null,
+    expiration_date: c.expiration_date || null,
+    test_frequency_months: c.test_frequency_months || DEFAULT_FREQUENCY_MONTHS,
+    element: c.element || "",
+    type_model: c.type_model || "",
+    brand: c.brand || "",
+    serial_number: c.serial_number || "",
+    range_value: c.range_value || "",
+    unit: c.unit || "",
+    size_value: c.size_value || "",
+    test_type: c.test_type || "",
+    reference_method: c.reference_method || "",
+    environmental_conditions: c.environmental_conditions || "",
+    measurement_unit: c.measurement_unit || "",
+    observations: c.observations || "",
+    conclusions: c.conclusions || "",
+    trial_result: c.trial_result || "",
+    approved_result: c.approved_result ?? true,
+    final_comments: c.final_comments || "",
+    is_paid: Boolean(c.is_paid),
+    payment_notes: null,
+    test_rows: (detail.test_rows || []).map((row, index) => ({
+      row_order: row.row_order || index + 1,
+      pressure_label: row.pressure_label || "",
+      range_value: row.range_value ?? null,
+      unit: row.unit || "",
+      acceptance_criteria: row.acceptance_criteria || "",
+      result: row.result || "",
+      observations: row.observations || "",
+    })),
+    pattern_usages: (detail.patterns || [])
+      .map((pattern) => pattern.pattern_id)
+      .filter(Boolean)
+      .map((pattern_id) => ({ pattern_id: String(pattern_id) })),
   };
 }
 
@@ -356,10 +406,14 @@ export function CertificateFormModal({
   open,
   onClose,
   onCreated,
+  mode = "create",
+  certificateId,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  mode?: "create" | "edit";
+  certificateId?: string;
 }) {
   const [clients, setClients] = useState<Client[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
@@ -380,8 +434,10 @@ export function CertificateFormModal({
   const [selectedPatternId, setSelectedPatternId] = useState("");
   const [allowHeaderEdit, setAllowHeaderEdit] = useState(false);
   const [form, setForm] = useState<CertificateCreatePayload>(() => defaultForm());
+  const isEdit = mode === "edit" && Boolean(certificateId);
 
   async function refreshNextNumber() {
+    if (isEdit) return;
     setLoadingNumber(true);
     try {
       const next = await getNextCertificateNumber({ prefix: "SIP" });
@@ -393,12 +449,13 @@ export function CertificateFormModal({
 
   async function loadResources() {
     setError(null);
-    setLoadingNumber(true);
+    setLoadingNumber(mode === "create");
     const [
       c,
       e,
       p,
       next,
+      detail,
       catUnits,
       catTestTypes,
       catElements,
@@ -413,7 +470,8 @@ export function CertificateFormModal({
       getClients(),
       getEquipment(),
       getPatterns(),
-      getNextCertificateNumber({ prefix: "SIP" }),
+      mode === "create" ? getNextCertificateNumber({ prefix: "SIP" }) : Promise.resolve(null),
+      isEdit && certificateId ? getCertificateById(certificateId) : Promise.resolve(null),
       getCatalogItems("units", { active: true }),
       getCatalogItems("test-types", { active: true }),
       getCatalogItems("elements", { active: true }),
@@ -438,9 +496,18 @@ export function CertificateFormModal({
     setRanges(catRanges);
     setFrequencies(catFrequencies);
     setPressureRows(catPressureRows);
-    setSelectedPatternId("");
     setAllowHeaderEdit(false);
-    const baseForm = defaultForm(next.certificate_number);
+
+    if (detail) {
+      const editForm = detailToForm(detail);
+      setForm(editForm);
+      setSelectedPatternId(editForm.pattern_usages?.[0]?.pattern_id || "");
+      setLoadingNumber(false);
+      return;
+    }
+
+    setSelectedPatternId("");
+    const baseForm = defaultForm(next?.certificate_number || "");
     const defaultRows = catPressureRows.length > 0
       ? catPressureRows.map((row, index) => ({
           row_order: Number(row.row_order || index + 1),
@@ -470,7 +537,7 @@ export function CertificateFormModal({
         setError(err instanceof Error ? err.message : "Error cargando datos");
       });
     }
-  }, [open]);
+  }, [open, mode, certificateId]);
 
   const filteredEquipment = useMemo(
     () => equipment.filter((e) => e.client_id === form.client_id),
@@ -781,11 +848,15 @@ export function CertificateFormModal({
       };
       await saveNewCatalogSuggestions(payload);
       const payloadWithEquipment = await saveEquipmentReference(payload);
-      await createCertificatePending(payloadWithEquipment);
+      if (isEdit && certificateId) {
+        await updateCertificate(certificateId, payloadWithEquipment);
+      } else {
+        await createCertificatePending(payloadWithEquipment);
+      }
       onCreated();
       onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "No se pudo crear el certificado";
+      const message = err instanceof Error ? err.message : "No se pudo guardar el certificado";
       setError(message.includes("duplicate") ? "El número de certificado ya existe. Actualizá el número y volvé a intentar." : message);
     } finally {
       setLoading(false);
@@ -793,7 +864,7 @@ export function CertificateFormModal({
   }
 
   return (
-    <Modal open={open} title="Nuevo certificado" onClose={onClose} wide>
+    <Modal open={open} title={isEdit ? "Editar certificado" : "Nuevo certificado"} onClose={onClose} wide>
       <form onSubmit={onSubmit} className="space-y-6">
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
 
@@ -806,9 +877,11 @@ export function CertificateFormModal({
               </p>
             </div>
             <div className="flex gap-2">
-              <Button type="button" variant="secondary" onClick={refreshNextNumber} disabled={loadingNumber}>
-                {loadingNumber ? "Buscando..." : "Actualizar Nº"}
-              </Button>
+              {!isEdit ? (
+                <Button type="button" variant="secondary" onClick={refreshNextNumber} disabled={loadingNumber}>
+                  {loadingNumber ? "Buscando..." : "Actualizar Nº"}
+                </Button>
+              ) : null}
               <Button type="button" variant="ghost" onClick={() => setAllowHeaderEdit((v) => !v)}>
                 {allowHeaderEdit ? "Bloquear fijos" : "Editar fijos"}
               </Button>
@@ -1045,7 +1118,7 @@ export function CertificateFormModal({
           <div className="flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
             <Button type="submit" disabled={loading || loadingNumber}>
-              {loading ? "Creando..." : "Guardar y enviar a aprobación"}
+              {loading ? "Guardando..." : isEdit ? "Guardar cambios" : "Guardar y enviar a aprobación"}
             </Button>
           </div>
         </div>

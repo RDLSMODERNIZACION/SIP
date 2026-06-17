@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { StatusBadge } from "@/src/components/ui/Badge";
 import { Button } from "@/src/components/ui/Button";
 import { Modal } from "@/src/components/ui/Modal";
-import { approveCertificate, generatePdf, generateQr, getCertificateById, rejectCertificate, submitCertificate } from "@/src/lib/certificatesApi";
+import { approveCertificate, deleteCertificate, generatePdf, generateQr, getCertificateById, rejectCertificate, submitCertificate } from "@/src/lib/certificatesApi";
 import { formatDate, formatDateTime } from "@/src/lib/format";
 import { resolveApiUrl } from "@/src/lib/config";
 import { useAuth } from "@/src/context/AuthContext";
 import type { Certificate, CertificateDetail } from "@/src/types";
+import { CertificateFormModal } from "./CertificateFormModal";
 
 export function CertificateDetailModal({
   certificate,
@@ -26,6 +27,7 @@ export function CertificateDetailModal({
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
 
   async function load() {
     if (!certificate) return;
@@ -59,14 +61,36 @@ export function CertificateDetailModal({
     }
   }
 
+
+  async function handleDelete() {
+    if (!certificate) return;
+    const confirmed = window.confirm(`¿Eliminar definitivamente el certificado ${c.certificate_number}? Esta acción no se puede deshacer.`);
+    if (!confirmed) return;
+
+    try {
+      setBusy(true);
+      setError(null);
+      await deleteCertificate(c.id, true);
+      onChanged();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar el certificado");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const c = detail?.certificate || certificate;
   if (!c) return null;
 
   const canSubmit = hasRole("admin", "certificador") && (c.status === "draft" || c.status === "rejected");
   const canApprove = hasRole("admin", "aprobador") && c.status === "submitted";
   const canGenerate = hasRole("admin", "aprobador") && c.status === "approved";
+  const canEdit = hasRole("admin") || (hasRole("certificador") && (c.status === "draft" || c.status === "rejected"));
+  const canDelete = hasRole("admin");
 
   return (
+    <>
     <Modal open={open} title={`Certificado ${c.certificate_number}`} onClose={onClose} wide>
       {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
       {loading ? <div className="text-sm text-slate-500">Cargando detalle...</div> : null}
@@ -136,6 +160,8 @@ export function CertificateDetailModal({
           <section className="rounded-2xl border border-slate-200 p-5">
             <h4 className="font-bold text-slate-950">Acciones</h4>
             <div className="mt-4 grid gap-3">
+              {canEdit ? <Button variant="secondary" disabled={busy} onClick={() => setEditing(true)}>Editar certificado</Button> : null}
+              {canDelete ? <Button variant="danger" disabled={busy} onClick={handleDelete}>Eliminar certificado</Button> : null}
               {canSubmit ? <Button disabled={busy} onClick={() => runAction(() => submitCertificate(c.id))}>Enviar a aprobación</Button> : null}
               {canApprove ? <Button variant="success" disabled={busy} onClick={() => runAction(() => approveCertificate(c.id))}>Aprobar certificado</Button> : null}
               {canApprove ? <Button variant="danger" disabled={busy} onClick={() => {
@@ -178,6 +204,18 @@ export function CertificateDetailModal({
         </aside>
       </div>
     </Modal>
+    <CertificateFormModal
+      open={editing}
+      mode="edit"
+      certificateId={c.id}
+      onClose={() => setEditing(false)}
+      onCreated={async () => {
+        setEditing(false);
+        await load();
+        onChanged();
+      }}
+    />
+    </>
   );
 }
 

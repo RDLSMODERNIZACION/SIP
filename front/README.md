@@ -1,21 +1,31 @@
-# SIP Certificados Digitales - Frontend hardcodeado
+# SIP Certificados Frontend
 
-Frontend inicial en Next.js + TypeScript + Tailwind CSS para validar el flujo de certificados digitales antes de conectar backend y base de datos.
+Frontend refactorizado y conectado al backend FastAPI publicado en Render.
 
-## Qué incluye
+## Incluye
 
-- Cambio de modo/rol: Administrador, Trabajador/Certificador, Aprobador y Cliente.
-- Dashboard operativo.
-- Listado de certificados con estados.
-- Alta hardcodeada de certificados.
-- Bandeja de aprobación.
-- Portal cliente.
-- Legajo digital de equipos.
-- Control de patrones/instrumentos propios.
-- Vista de validación pública por QR en `/validar/[hash]`.
-- Vista imprimible del certificado en dos páginas.
+- Diseño más sobrio y profesional.
+- Login real contra `/auth/login`.
+- Token JWT guardado en `localStorage`.
+- Panel general conectado a `/certificates`.
+- Certificados conectados a la API.
+- Alta de certificados en borrador.
+- Envío a aprobación.
+- Aprobación/rechazo.
+- Generación de QR y PDF.
+- Validación pública por QR en `/validar/[hash]`.
+- Clientes, equipos, patrones y usuarios conectados al backend.
+- `.gitignore` para no subir `node_modules`, `.next`, `.env.local`, logs ni archivos temporales.
 
-## Cómo iniciar
+## Configuración
+
+Crear `.env.local` en la raíz del proyecto:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=https://sip-fhu8.onrender.com
+```
+
+## Iniciar localmente
 
 ```bash
 npm install
@@ -24,24 +34,39 @@ npm run dev
 
 Abrir:
 
-```bash
+```text
 http://localhost:3000
 ```
 
-Ejemplo de validación pública:
+## Usuarios de prueba
 
-```bash
-http://localhost:3000/validar/sip-26-032-valido
+```text
+admin@sip.com / admin123
+trabajador@sip.com / trabajador123
+aprobador@sip.com / aprobador123
+cliente@tanckoating.com / cliente123
 ```
 
-## Próxima etapa
+## Estructura principal
 
-Después de aprobar las pantallas, se puede conectar con:
+```text
+app/
+  login/page.tsx
+  page.tsx
+  certificados/page.tsx
+  clientes/page.tsx
+  equipos/page.tsx
+  patrones/page.tsx
+  usuarios/page.tsx
+  validar/[hash]/page.tsx
 
-- Backend FastAPI.
-- Base de datos Supabase/PostgreSQL.
-- Auth real por usuario.
-- Generación real de PDF.
-- QR real.
-- Storage para PDFs y adjuntos.
-- Auditoría real de cambios.
+src/
+  context/AuthContext.tsx
+  lib/api.ts
+  lib/auth.ts
+  lib/certificatesApi.ts
+  lib/resourcesApi.ts
+  components/layout/*
+  components/ui/*
+  components/certificates/*
+```

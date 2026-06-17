@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
 import "./globals.css";
+import { AuthProvider } from "@/src/context/AuthContext";
 
 export const metadata: Metadata = {
-  title: "SIP Certificados Digitales",
-  description: "Frontend hardcodeado para gestión, aprobación y validación de certificados digitales."
+  title: "SIP Certificados",
+  description: "Sistema de certificados digitales con aprobación y validación pública.",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }

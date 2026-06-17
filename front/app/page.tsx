@@ -1,5 +1,5 @@
-import CertificadosFront from "@/components/CertificadosFront";
+import DashboardView from "@/src/components/dashboard/DashboardView";
 
 export default function HomePage() {
-  return <CertificadosFront />;
+  return <DashboardView />;
 }

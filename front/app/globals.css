@@ -3,7 +3,8 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
+  --background: #f6f7f9;
+  --foreground: #0f172a;
 }
 
 * {
@@ -15,9 +16,9 @@ html {
 }
 
 body {
-  min-height: 100vh;
-  background: #f1f5f9;
-  color: #0f172a;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
 }
 
 button,
@@ -29,25 +30,15 @@ textarea {
 
 @media print {
   body {
-    background: white !important;
+    background: white;
   }
 
   .no-print {
     display: none !important;
   }
 
-  .print-area {
-    display: block !important;
-    position: static !important;
-    box-shadow: none !important;
-    background: white !important;
-  }
-
   .print-page {
-    page-break-after: always;
     box-shadow: none !important;
-    border: 1px solid #111827 !important;
-    margin: 0 !important;
-    width: 100% !important;
+    border: 0 !important;
   }
 }

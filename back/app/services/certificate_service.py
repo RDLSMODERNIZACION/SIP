@@ -308,3 +308,29 @@ def annul_certificate(cert_id: str, reason: str, user):
     )
     execute("select add_certificate_audit(%s,%s,'annulled',%s,%s,'annulled')", [cert_id, user["id"], reason, cert["status"]])
     return certificate_detail(cert_id, user)
+
+
+
+def delete_certificate(cert_id: str, user, hard: bool = True):
+    cert = get_certificate_or_404(cert_id)
+
+    if user["role_code"] != "admin":
+        raise HTTPException(status_code=403, detail="Solo un administrador puede eliminar certificados")
+
+    if not hard:
+        return annul_certificate(cert_id, "Certificado desactivado/anulado desde acciones.", user)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("delete from certificate_test_rows where certificate_id=%s", [cert_id])
+            cur.execute("delete from certificate_pattern_usage where certificate_id=%s", [cert_id])
+            cur.execute("delete from certificate_comments where certificate_id=%s", [cert_id])
+            cur.execute("delete from certificate_files where certificate_id=%s", [cert_id])
+            cur.execute("delete from certificate_audit_log where certificate_id=%s", [cert_id])
+            cur.execute("delete from certificates where id=%s returning id", [cert_id])
+            deleted = cur.fetchone()
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Certificado no encontrado")
+
+    return {"ok": True, "deleted_id": cert_id}

@@ -7,6 +7,7 @@ from ..services.certificate_service import (
     certificate_detail,
     create_certificate,
     update_certificate,
+    delete_certificate,
     submit_certificate,
     approve_certificate,
     reject_certificate,
@@ -42,6 +43,11 @@ def get(cert_id: str, user=Depends(get_current_user)):
 @router.patch("/{cert_id}")
 def update(cert_id: str, payload: CertificateUpdate, user=Depends(require_roles("admin", "certificador"))):
     return update_certificate(cert_id, payload, user)
+
+
+@router.delete("/{cert_id}")
+def delete(cert_id: str, hard: bool = True, user=Depends(require_roles("admin"))):
+    return delete_certificate(cert_id, user=user, hard=hard)
 
 
 @router.post("/{cert_id}/submit")

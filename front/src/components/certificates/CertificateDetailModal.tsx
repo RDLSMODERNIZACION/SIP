@@ -63,14 +63,18 @@ export function CertificateDetailModal({
 
 
   async function handleDelete() {
-    if (!certificate) return;
-    const confirmed = window.confirm(`¿Eliminar definitivamente el certificado ${c.certificate_number}? Esta acción no se puede deshacer.`);
+    const current = detail?.certificate || certificate;
+    if (!current) return;
+
+    const confirmed = window.confirm(
+      `¿Eliminar definitivamente el certificado ${current.certificate_number}? Esta acción no se puede deshacer.`
+    );
     if (!confirmed) return;
 
     try {
       setBusy(true);
       setError(null);
-      await deleteCertificate(c.id, true);
+      await deleteCertificate(current.id, true);
       onChanged();
       onClose();
     } catch (err) {
@@ -159,9 +163,10 @@ export function CertificateDetailModal({
         <aside className="space-y-5">
           <section className="rounded-2xl border border-slate-200 p-5">
             <h4 className="font-bold text-slate-950">Acciones</h4>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Acciones operativas del flujo de certificación.
+            </p>
             <div className="mt-4 grid gap-3">
-              {canEdit ? <Button variant="secondary" disabled={busy} onClick={() => setEditing(true)}>Editar certificado</Button> : null}
-              {canDelete ? <Button variant="danger" disabled={busy} onClick={handleDelete}>Eliminar certificado</Button> : null}
               {canSubmit ? <Button disabled={busy} onClick={() => runAction(() => submitCertificate(c.id))}>Enviar a aprobación</Button> : null}
               {canApprove ? <Button variant="success" disabled={busy} onClick={() => runAction(() => approveCertificate(c.id))}>Aprobar certificado</Button> : null}
               {canApprove ? <Button variant="danger" disabled={busy} onClick={() => {
@@ -174,6 +179,27 @@ export function CertificateDetailModal({
               {c.validation_hash ? <a className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50" href={`/validar/${c.validation_hash}`} target="_blank">Ver validación pública</a> : null}
             </div>
           </section>
+
+          {(canEdit || canDelete) ? (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5">
+              <h4 className="font-bold text-slate-950">Edición y eliminación</h4>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Usar solo para corregir errores de carga. La eliminación es definitiva.
+              </p>
+              <div className="mt-4 grid gap-3">
+                {canEdit ? (
+                  <Button variant="secondary" disabled={busy} onClick={() => setEditing(true)}>
+                    Editar certificado
+                  </Button>
+                ) : null}
+                {canDelete ? (
+                  <Button variant="danger" disabled={busy} onClick={handleDelete}>
+                    Eliminar 
+                  </Button>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
 
           <section className="rounded-2xl border border-slate-200 p-5">
             <h4 className="font-bold text-slate-950">Patrones aplicados</h4>

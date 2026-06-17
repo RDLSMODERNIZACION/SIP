@@ -10,13 +10,39 @@ import {
   type CertificateCreatePayload,
 } from "@/src/lib/certificatesApi";
 import { getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
-import { getCatalogItems, type CatalogItem } from "@/src/lib/catalogsApi";
+import { ensureCatalogItem, getCatalogItems, type CatalogItem } from "@/src/lib/catalogsApi";
 import type { Client, Equipment, Pattern } from "@/src/types";
 
 const FIXED_CERTIFICATE_CODE = "CE-SIP-01";
 const FIXED_CERTIFICATE_REVISION = "5";
 const FIXED_CERTIFICATE_VALIDITY = "2024-10-01";
 const DEFAULT_FREQUENCY_MONTHS = 60;
+
+
+function normalizeText(value: unknown) {
+  return String(value || "").trim().replace(/\s+/g, " ");
+}
+
+function sameText(a: unknown, b: unknown) {
+  return normalizeText(a).toUpperCase() === normalizeText(b).toUpperCase();
+}
+
+function uniqueTexts(values: Array<string | null | undefined>) {
+  const result: string[] = [];
+  values.forEach((value) => {
+    const clean = normalizeText(value);
+    if (clean && !result.some((item) => sameText(item, clean))) result.push(clean);
+  });
+  return result.sort((a, b) => a.localeCompare(b));
+}
+
+async function settleCatalogSaves(tasks: Array<Promise<unknown>>) {
+  const results = await Promise.allSettled(tasks);
+  const rejected = results.filter((r) => r.status === "rejected");
+  if (rejected.length > 0) {
+    console.warn("Algunos catálogos no pudieron guardarse como sugerencia", rejected);
+  }
+}
 
 function textValue(item: CatalogItem, field: keyof CatalogItem = "name") {
   const value = item[field];
@@ -203,6 +229,91 @@ export function CertificateFormModal({
     [elementModels, form.element]
   );
 
+  const elementSuggestions = useMemo(
+    () => uniqueTexts([
+      ...elements.map((item) => textValue(item)),
+      ...equipment.map((item) => item.element),
+      form.element,
+    ]),
+    [elements, equipment, form.element]
+  );
+
+  const typeModelSuggestions = useMemo(
+    () => uniqueTexts([
+      ...filteredElementModels.map((item) => textValue(item, "full_name")),
+      ...equipment
+        .filter((item) => !form.element || sameText(item.element, form.element))
+        .map((item) => item.type_model),
+      form.type_model,
+    ]),
+    [filteredElementModels, equipment, form.element, form.type_model]
+  );
+
+  const unitSuggestions = useMemo(
+    () => uniqueTexts([
+      ...units.map((item) => textValue(item)),
+      ...equipment.map((item) => item.unit),
+      form.unit,
+      form.measurement_unit,
+    ]),
+    [units, equipment, form.unit, form.measurement_unit]
+  );
+
+  const sizeSuggestions = useMemo(
+    () => uniqueTexts([
+      ...sizes.map((item) => textValue(item)),
+      ...equipment.map((item) => item.size_value),
+      form.size_value,
+    ]),
+    [sizes, equipment, form.size_value]
+  );
+
+  const brandSuggestions = useMemo(
+    () => uniqueTexts([...equipment.map((item) => item.brand), form.brand]),
+    [equipment, form.brand]
+  );
+
+  const testTypeSuggestions = useMemo(
+    () => uniqueTexts([...testTypes.map((item) => textValue(item)), form.test_type]),
+    [testTypes, form.test_type]
+  );
+
+  const pressureLabelSuggestions = useMemo(
+    () => uniqueTexts([
+      ...pressureRows.map((item) => textValue(item)),
+      ...(form.test_rows || []).map((row) => row.pressure_label),
+    ]),
+    [pressureRows, form.test_rows]
+  );
+
+  async function saveNewCatalogSuggestions(payload: CertificateCreatePayload) {
+    const tasks: Array<Promise<unknown>> = [];
+    const element = normalizeText(payload.element);
+    const typeModel = normalizeText(payload.type_model);
+    const unit = normalizeText(payload.unit);
+    const measurementUnit = normalizeText(payload.measurement_unit);
+    const size = normalizeText(payload.size_value);
+    const testType = normalizeText(payload.test_type);
+
+    if (element) tasks.push(ensureCatalogItem("elements", { name: element }));
+    if (typeModel && element) {
+      tasks.push(ensureCatalogItem("element-models", { element_name: element, full_name: typeModel }));
+    }
+    if (unit) tasks.push(ensureCatalogItem("units", { name: unit }));
+    if (measurementUnit && !sameText(measurementUnit, unit)) tasks.push(ensureCatalogItem("units", { name: measurementUnit }));
+    if (size) tasks.push(ensureCatalogItem("sizes", { name: size }));
+    if (testType) tasks.push(ensureCatalogItem("test-types", { name: testType }));
+
+    (payload.test_rows || []).forEach((row, index) => {
+      const label = normalizeText(row.pressure_label);
+      if (label) tasks.push(ensureCatalogItem("pressure-rows", { name: label, row_order: row.row_order || index + 1 }));
+      const rowUnit = normalizeText(row.unit);
+      if (rowUnit) tasks.push(ensureCatalogItem("units", { name: rowUnit }));
+    });
+
+    await settleCatalogSaves(tasks);
+  }
+
   function update<K extends keyof CertificateCreatePayload>(key: K, value: CertificateCreatePayload[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -272,8 +383,18 @@ export function CertificateFormModal({
         certificate_code: form.certificate_code || FIXED_CERTIFICATE_CODE,
         certificate_revision: form.certificate_revision || FIXED_CERTIFICATE_REVISION,
         certificate_validity: form.certificate_validity || FIXED_CERTIFICATE_VALIDITY,
+        element: normalizeText(form.element),
+        type_model: normalizeText(form.type_model),
+        brand: normalizeText(form.brand),
+        serial_number: normalizeText(form.serial_number),
+        range_value: normalizeText(form.range_value),
+        unit: normalizeText(form.unit),
+        size_value: normalizeText(form.size_value),
+        test_type: normalizeText(form.test_type),
+        measurement_unit: normalizeText(form.measurement_unit),
         pattern_usages: selectedPatternId ? [{ pattern_id: selectedPatternId }] : [],
       };
+      await saveNewCatalogSuggestions(payload);
       await createCertificatePending(payload);
       onCreated();
       onClose();
@@ -397,37 +518,72 @@ export function CertificateFormModal({
           <h3 className="text-sm font-bold text-slate-900">Datos del equipo</h3>
           <div className="grid gap-4 md:grid-cols-4">
             <Field label="Elemento">
-              <select className={inputClass} value={form.element || ""} onChange={(e) => setForm((prev) => ({ ...prev, element: e.target.value, type_model: "" }))}>
-                <option value="">Seleccionar</option>
-                {elements.map((el) => <option key={el.id} value={textValue(el)}>{textValue(el)}</option>)}
-              </select>
+              <input
+                className={inputClass}
+                list="catalog-elementos"
+                value={form.element || ""}
+                onChange={(e) => setForm((prev) => ({ ...prev, element: e.target.value, type_model: prev.element && !sameText(prev.element, e.target.value) ? "" : prev.type_model }))}
+                placeholder="Escribir o elegir"
+              />
+              <datalist id="catalog-elementos">
+                {elementSuggestions.map((value) => <option key={value} value={value} />)}
+              </datalist>
             </Field>
             <Field label="Tipo / Modelo">
-              <select className={inputClass} value={form.type_model || ""} onChange={(e) => update("type_model", e.target.value)}>
-                <option value="">Seleccionar</option>
-                {filteredElementModels.map((m) => <option key={m.id} value={textValue(m, "full_name")}>{textValue(m, "full_name")}</option>)}
-              </select>
+              <input
+                className={inputClass}
+                list="catalog-modelos"
+                value={form.type_model || ""}
+                onChange={(e) => update("type_model", e.target.value)}
+                placeholder="Escribir o elegir"
+              />
+              <datalist id="catalog-modelos">
+                {typeModelSuggestions.map((value) => <option key={value} value={value} />)}
+              </datalist>
             </Field>
-            <Field label="Marca"><input className={inputClass} value={form.brand || ""} onChange={(e) => update("brand", e.target.value)} /></Field>
+            <Field label="Marca">
+              <input className={inputClass} list="catalog-marcas" value={form.brand || ""} onChange={(e) => update("brand", e.target.value)} placeholder="Escribir" />
+              <datalist id="catalog-marcas">
+                {brandSuggestions.map((value) => <option key={value} value={value} />)}
+              </datalist>
+            </Field>
             <Field label="Serie"><input className={inputClass} value={form.serial_number || ""} onChange={(e) => update("serial_number", e.target.value)} /></Field>
             <Field label="Rango"><input className={inputClass} value={form.range_value || ""} onChange={(e) => update("range_value", e.target.value)} /></Field>
             <Field label="Unidad rango">
-              <select className={inputClass} value={form.unit || ""} onChange={(e) => update("unit", e.target.value)}>
-                <option value="">Seleccionar</option>
-                {units.map((u) => <option key={u.id} value={textValue(u)}>{textValue(u)}</option>)}
-              </select>
+              <input
+                className={inputClass}
+                list="catalog-unidades-rango"
+                value={form.unit || ""}
+                onChange={(e) => update("unit", e.target.value)}
+                placeholder="Escribir o elegir"
+              />
+              <datalist id="catalog-unidades-rango">
+                {unitSuggestions.map((value) => <option key={value} value={value} />)}
+              </datalist>
             </Field>
             <Field label="Size">
-              <select className={inputClass} value={form.size_value || ""} onChange={(e) => update("size_value", e.target.value)}>
-                <option value="">Seleccionar</option>
-                {sizes.map((s) => <option key={s.id} value={textValue(s)}>{textValue(s)}</option>)}
-              </select>
+              <input
+                className={inputClass}
+                list="catalog-sizes"
+                value={form.size_value || ""}
+                onChange={(e) => update("size_value", e.target.value)}
+                placeholder="Escribir o elegir"
+              />
+              <datalist id="catalog-sizes">
+                {sizeSuggestions.map((value) => <option key={value} value={value} />)}
+              </datalist>
             </Field>
             <Field label="Unidad ensayo">
-              <select className={inputClass} value={form.measurement_unit || ""} onChange={(e) => update("measurement_unit", e.target.value)}>
-                <option value="">Seleccionar</option>
-                {units.map((u) => <option key={u.id} value={textValue(u)}>{textValue(u)}</option>)}
-              </select>
+              <input
+                className={inputClass}
+                list="catalog-unidades-ensayo"
+                value={form.measurement_unit || ""}
+                onChange={(e) => update("measurement_unit", e.target.value)}
+                placeholder="Escribir o elegir"
+              />
+              <datalist id="catalog-unidades-ensayo">
+                {unitSuggestions.map((value) => <option key={value} value={value} />)}
+              </datalist>
             </Field>
           </div>
         </section>
@@ -436,10 +592,16 @@ export function CertificateFormModal({
           <h3 className="text-sm font-bold text-slate-900">Ensayo y resultado</h3>
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Tipo de prueba">
-              <select className={inputClass} value={form.test_type || ""} onChange={(e) => update("test_type", e.target.value)}>
-                <option value="">Seleccionar</option>
-                {testTypes.map((t) => <option key={t.id} value={textValue(t)}>{textValue(t)}</option>)}
-              </select>
+              <input
+                className={inputClass}
+                list="catalog-tipos-prueba"
+                value={form.test_type || ""}
+                onChange={(e) => update("test_type", e.target.value)}
+                placeholder="Escribir o elegir"
+              />
+              <datalist id="catalog-tipos-prueba">
+                {testTypeSuggestions.map((value) => <option key={value} value={value} />)}
+              </datalist>
             </Field>
             <Field label="Método / protocolo"><textarea className={inputClass} rows={4} value={form.reference_method || ""} onChange={(e) => update("reference_method", e.target.value)} /></Field>
             <Field label="Conclusiones"><textarea className={inputClass} rows={4} value={form.conclusions || ""} onChange={(e) => update("conclusions", e.target.value)} /></Field>
@@ -464,11 +626,13 @@ export function CertificateFormModal({
               <tbody>
                 {(form.test_rows || []).map((row, index) => (
                   <tr key={row.row_order} className="border-t border-slate-100">
-                    <td className="p-2"><input className={inputClass} value={row.pressure_label} onChange={(e) => updateTestRow(index, "pressure_label", e.target.value)} /></td>
+                    <td className="p-2">
+                      <input className={inputClass} list="catalog-presiones" value={row.pressure_label} onChange={(e) => updateTestRow(index, "pressure_label", e.target.value)} />
+                    </td>
                     <td className="p-2">
                       <div className="flex gap-2">
                         <input className={inputClass} type="number" value={row.range_value ?? ""} onChange={(e) => updateTestRow(index, "range_value", e.target.value)} />
-                        <input className={`${inputClass} max-w-24`} value={row.unit || ""} onChange={(e) => updateTestRow(index, "unit", e.target.value)} />
+                        <input className={`${inputClass} max-w-24`} list="catalog-unidades-filas" value={row.unit || ""} onChange={(e) => updateTestRow(index, "unit", e.target.value)} />
                       </div>
                     </td>
                     <td className="p-2"><input className={inputClass} value={row.acceptance_criteria || ""} onChange={(e) => updateTestRow(index, "acceptance_criteria", e.target.value)} /></td>
@@ -478,12 +642,18 @@ export function CertificateFormModal({
                 ))}
               </tbody>
             </table>
+            <datalist id="catalog-presiones">
+              {pressureLabelSuggestions.map((value) => <option key={value} value={value} />)}
+            </datalist>
+            <datalist id="catalog-unidades-filas">
+              {unitSuggestions.map((value) => <option key={value} value={value} />)}
+            </datalist>
           </div>
         </section>
 
         <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">
           <p className="text-xs text-slate-500">
-            Al guardar, el certificado queda automáticamente en <strong>pendiente de aprobación</strong>. El PDF y QR final se generan después de aprobar.
+            Los campos con sugerencias permiten escribir valores nuevos. Al guardar, si no existen, se agregan al catálogo para la próxima carga. El certificado queda en <strong>pendiente de aprobación</strong>.
           </p>
           <div className="flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>

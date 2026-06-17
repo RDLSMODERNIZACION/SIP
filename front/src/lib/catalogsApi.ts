@@ -48,6 +48,14 @@ export async function getCatalogItems(catalog: CatalogCode, params?: { q?: strin
   return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${query}`);
 }
 
+
+export async function ensureCatalogItem(catalog: CatalogCode, payload: Partial<CatalogItem>) {
+  return apiFetch<CatalogItem>(`/catalogs/${catalog}/ensure`, {
+    method: "POST",
+    body: JSON.stringify(cleanPayload(payload)),
+  });
+}
+
 export async function createCatalogItem(catalog: CatalogCode, payload: Partial<CatalogItem>) {
   return apiFetch<CatalogItem>(`/catalogs/${catalog}`, {
     method: "POST",

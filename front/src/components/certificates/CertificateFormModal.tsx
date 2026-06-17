@@ -9,7 +9,7 @@ import {
   getNextCertificateNumber,
   type CertificateCreatePayload,
 } from "@/src/lib/certificatesApi";
-import { createEquipment, getClients, getEquipment, getPatterns, updateEquipment } from "@/src/lib/resourcesApi";
+import { createEquipment, getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
 import {
   deleteCatalogItem,
   ensureCatalogItem,
@@ -24,14 +24,10 @@ const FIXED_CERTIFICATE_REVISION = "5";
 const FIXED_CERTIFICATE_VALIDITY = "2024-10-01";
 const DEFAULT_FREQUENCY_MONTHS = 60;
 
-type EquipmentSuggestionField = "brand" | "serial_number" | "range_value";
-
 type SuggestionItem = {
   label: string;
   id?: string;
   catalog?: CatalogCode;
-  equipmentField?: EquipmentSuggestionField;
-  equipmentIds?: string[];
 };
 
 function normalizeText(value: unknown) {
@@ -70,14 +66,6 @@ function uniqueSuggestionItems(items: SuggestionItem[]) {
       return;
     }
 
-    if (cleanItem.equipmentIds?.length) {
-      const currentIds = result[existingIndex].equipmentIds || [];
-      result[existingIndex] = {
-        ...result[existingIndex],
-        equipmentField: result[existingIndex].equipmentField || cleanItem.equipmentField,
-        equipmentIds: Array.from(new Set([...currentIds, ...cleanItem.equipmentIds])),
-      };
-    }
   });
   return result.sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -217,13 +205,12 @@ function CatalogAutocomplete({
     event.preventDefault();
     event.stopPropagation();
     const canDeleteCatalog = Boolean(item.id && item.catalog);
-    const canDeleteEquipmentReference = Boolean(item.equipmentField && item.equipmentIds?.length);
-    if ((!canDeleteCatalog && !canDeleteEquipmentReference) || !onDeleteSuggestion) return;
+    if (!canDeleteCatalog || !onDeleteSuggestion) return;
     const confirmed = window.confirm(`¿Eliminar "${item.label}" de las sugerencias?`);
     if (!confirmed) return;
 
     try {
-      setDeletingId(item.id || `${item.equipmentField}-${item.label}`);
+      setDeletingId(item.id || item.label);
       await onDeleteSuggestion(item);
       if (sameText(value, item.label)) onChange("");
     } finally {
@@ -257,8 +244,8 @@ function CatalogAutocomplete({
       {open && filtered.length > 0 ? (
         <div className="absolute z-[80] mt-2 max-h-72 w-full min-w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl md:min-w-[420px]">
           {filtered.map((item) => {
-            const canDelete = Boolean(((item.id && item.catalog) || (item.equipmentField && item.equipmentIds?.length)) && onDeleteSuggestion);
-            const deleteKey = item.id || `${item.equipmentField || "equipment"}-${item.label}`;
+            const canDelete = Boolean(item.id && item.catalog && onDeleteSuggestion);
+            const deleteKey = item.id || item.label;
             return (
               <div
                 key={`${item.catalog || "local"}-${item.id || item.label}`}
@@ -310,6 +297,9 @@ export function CertificateFormModal({
   const [elements, setElements] = useState<CatalogItem[]>([]);
   const [elementModels, setElementModels] = useState<CatalogItem[]>([]);
   const [sizes, setSizes] = useState<CatalogItem[]>([]);
+  const [brands, setBrands] = useState<CatalogItem[]>([]);
+  const [serialNumbers, setSerialNumbers] = useState<CatalogItem[]>([]);
+  const [ranges, setRanges] = useState<CatalogItem[]>([]);
   const [frequencies, setFrequencies] = useState<CatalogItem[]>([]);
   const [pressureRows, setPressureRows] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -332,7 +322,22 @@ export function CertificateFormModal({
   async function loadResources() {
     setError(null);
     setLoadingNumber(true);
-    const [c, e, p, next, catUnits, catTestTypes, catElements, catElementModels, catSizes, catFrequencies, catPressureRows] = await Promise.all([
+    const [
+      c,
+      e,
+      p,
+      next,
+      catUnits,
+      catTestTypes,
+      catElements,
+      catElementModels,
+      catSizes,
+      catBrands,
+      catSerialNumbers,
+      catRanges,
+      catFrequencies,
+      catPressureRows,
+    ] = await Promise.all([
       getClients(),
       getEquipment(),
       getPatterns(),
@@ -342,6 +347,9 @@ export function CertificateFormModal({
       getCatalogItems("elements", { active: true }),
       getCatalogItems("element-models", { active: true }),
       getCatalogItems("sizes", { active: true }),
+      getCatalogItems("brands", { active: true }),
+      getCatalogItems("serial-numbers", { active: true }),
+      getCatalogItems("ranges", { active: true }),
       getCatalogItems("frequencies", { active: true }),
       getCatalogItems("pressure-rows", { active: true }),
     ]);
@@ -353,6 +361,9 @@ export function CertificateFormModal({
     setElements(catElements);
     setElementModels(catElementModels);
     setSizes(catSizes);
+    setBrands(catBrands);
+    setSerialNumbers(catSerialNumbers);
+    setRanges(catRanges);
     setFrequencies(catFrequencies);
     setPressureRows(catPressureRows);
     setSelectedPatternId("");
@@ -402,83 +413,61 @@ export function CertificateFormModal({
   const elementSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...elements.map((item) => ({ label: textValue(item), id: item.id, catalog: "elements" as CatalogCode })),
-      ...equipment.map((item) => ({ label: item.element || "" })),
       { label: form.element || "" },
     ]),
-    [elements, equipment, form.element]
+    [elements, form.element]
   );
 
   const typeModelSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...filteredElementModels.map((item) => ({ label: textValue(item, "full_name"), id: item.id, catalog: "element-models" as CatalogCode })),
-      ...equipment
-        .filter((item) => !form.element || sameText(item.element, form.element))
-        .map((item) => ({ label: item.type_model || "" })),
       { label: form.type_model || "" },
     ]),
-    [filteredElementModels, equipment, form.element, form.type_model]
+    [filteredElementModels, form.type_model]
   );
 
   const unitSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...units.map((item) => ({ label: textValue(item), id: item.id, catalog: "units" as CatalogCode })),
-      ...equipment.map((item) => ({ label: item.unit || "" })),
       { label: form.unit || "" },
       { label: form.measurement_unit || "" },
     ]),
-    [units, equipment, form.unit, form.measurement_unit]
+    [units, form.unit, form.measurement_unit]
   );
 
   const sizeSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...sizes.map((item) => ({ label: textValue(item), id: item.id, catalog: "sizes" as CatalogCode })),
-      ...equipment.map((item) => ({ label: item.size_value || "" })),
       { label: form.size_value || "" },
     ]),
-    [sizes, equipment, form.size_value]
+    [sizes, form.size_value]
   );
 
   const brandSuggestions = useMemo(
     () =>
       uniqueSuggestionItems([
-        ...equipment.map((item) => ({
-          label: item.brand || "",
-          equipmentField: "brand" as EquipmentSuggestionField,
-          equipmentIds: item.id ? [item.id] : [],
-        })),
+        ...brands.map((item) => ({ label: textValue(item), id: item.id, catalog: "brands" as CatalogCode })),
         { label: form.brand || "" },
       ]),
-    [equipment, form.brand]
+    [brands, form.brand]
   );
 
   const serialSuggestions = useMemo(
     () =>
       uniqueSuggestionItems([
-        ...equipment
-          .filter((item) => !form.element || sameText(item.element, form.element))
-          .map((item) => ({
-            label: item.serial_number || "",
-            equipmentField: "serial_number" as EquipmentSuggestionField,
-            equipmentIds: item.id ? [item.id] : [],
-          })),
+        ...serialNumbers.map((item) => ({ label: textValue(item), id: item.id, catalog: "serial-numbers" as CatalogCode })),
         { label: form.serial_number || "" },
       ]),
-    [equipment, form.element, form.serial_number]
+    [serialNumbers, form.serial_number]
   );
 
   const rangeSuggestions = useMemo(
     () =>
       uniqueSuggestionItems([
-        ...equipment
-          .filter((item) => !form.element || sameText(item.element, form.element))
-          .map((item) => ({
-            label: item.range_value || "",
-            equipmentField: "range_value" as EquipmentSuggestionField,
-            equipmentIds: item.id ? [item.id] : [],
-          })),
+        ...ranges.map((item) => ({ label: textValue(item), id: item.id, catalog: "ranges" as CatalogCode })),
         { label: form.range_value || "" },
       ]),
-    [equipment, form.element, form.range_value]
+    [ranges, form.range_value]
   );
 
   const testTypeSuggestions = useMemo(
@@ -506,25 +495,11 @@ export function CertificateFormModal({
         if (item.catalog === "element-models") setElementModels((prev) => prev.filter((current) => current.id !== item.id));
         if (item.catalog === "units") setUnits((prev) => prev.filter((current) => current.id !== item.id));
         if (item.catalog === "sizes") setSizes((prev) => prev.filter((current) => current.id !== item.id));
+        if (item.catalog === "brands") setBrands((prev) => prev.filter((current) => current.id !== item.id));
+        if (item.catalog === "serial-numbers") setSerialNumbers((prev) => prev.filter((current) => current.id !== item.id));
+        if (item.catalog === "ranges") setRanges((prev) => prev.filter((current) => current.id !== item.id));
         if (item.catalog === "test-types") setTestTypes((prev) => prev.filter((current) => current.id !== item.id));
         if (item.catalog === "pressure-rows") setPressureRows((prev) => prev.filter((current) => current.id !== item.id));
-        return;
-      }
-
-      if (item.equipmentField && item.equipmentIds?.length) {
-        await Promise.all(
-          item.equipmentIds.map((equipmentId) =>
-            updateEquipment(equipmentId, { [item.equipmentField as EquipmentSuggestionField]: null } as Partial<Equipment>)
-          )
-        );
-
-        setEquipment((prev) =>
-          prev.map((current) =>
-            item.equipmentIds?.includes(current.id)
-              ? { ...current, [item.equipmentField as EquipmentSuggestionField]: null }
-              : current
-          )
-        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo eliminar la sugerencia");
@@ -625,6 +600,9 @@ export function CertificateFormModal({
     const unit = normalizeText(payload.unit);
     const measurementUnit = normalizeText(payload.measurement_unit);
     const size = normalizeText(payload.size_value);
+    const brand = normalizeText(payload.brand);
+    const serialNumber = normalizeText(payload.serial_number);
+    const range = normalizeText(payload.range_value);
     const testType = normalizeText(payload.test_type);
 
     if (element) tasks.push(ensureCatalogItem("elements", { name: element }));
@@ -634,6 +612,9 @@ export function CertificateFormModal({
     if (unit) tasks.push(ensureCatalogItem("units", { name: unit }));
     if (measurementUnit && !sameText(measurementUnit, unit)) tasks.push(ensureCatalogItem("units", { name: measurementUnit }));
     if (size) tasks.push(ensureCatalogItem("sizes", { name: size }));
+    if (brand) tasks.push(ensureCatalogItem("brands", { name: brand }));
+    if (serialNumber) tasks.push(ensureCatalogItem("serial-numbers", { name: serialNumber }));
+    if (range) tasks.push(ensureCatalogItem("ranges", { name: range }));
     if (testType) tasks.push(ensureCatalogItem("test-types", { name: testType }));
 
     (payload.test_rows || []).forEach((row, index) => {

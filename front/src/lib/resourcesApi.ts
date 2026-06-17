@@ -47,6 +47,10 @@ export async function createEquipment(payload: Partial<Equipment>) {
   return apiFetch<Equipment>("/equipment", { method: "POST", body: JSON.stringify(cleanPayload(payload)) });
 }
 
+export async function updateEquipment(id: string, payload: Partial<Equipment>) {
+  return apiFetch<Equipment>(`/equipment/${id}`, { method: "PATCH", body: JSON.stringify(cleanPayload(payload)) });
+}
+
 export async function getPatterns(params?: { q?: string; status?: string }) {
   const search = new URLSearchParams();
   if (params?.q) search.set("q", params.q);

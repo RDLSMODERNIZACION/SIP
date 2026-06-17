@@ -42,6 +42,27 @@ CATALOGS: dict[str, dict[str, Any]] = {
         "search": ["name"],
         "order": "name",
     },
+    "brands": {
+        "table": "catalog_brands",
+        "label": "Marcas",
+        "fields": ["name", "active"],
+        "search": ["name"],
+        "order": "name",
+    },
+    "serial-numbers": {
+        "table": "catalog_serial_numbers",
+        "label": "Series",
+        "fields": ["name", "active"],
+        "search": ["name"],
+        "order": "name",
+    },
+    "ranges": {
+        "table": "catalog_ranges",
+        "label": "Rangos",
+        "fields": ["name", "active"],
+        "search": ["name"],
+        "order": "name",
+    },
     "frequencies": {
         "table": "catalog_frequencies",
         "label": "Frecuencias",
@@ -142,55 +163,6 @@ def _sync_element_id_if_needed(catalog: str, data: dict[str, Any]) -> dict[str, 
     return data
 
 
-def _same_text(a: Any, b: Any) -> bool:
-    return str(a or "").strip().upper() == str(b or "").strip().upper()
-
-
-def _find_existing_catalog_item(catalog: str, data: dict[str, Any]) -> dict[str, Any] | None:
-    cfg = _config(catalog)
-    table = cfg["table"]
-    if catalog in {"units", "test-types", "elements", "sizes", "pressure-rows", "payment-terms"}:
-        name = data.get("name")
-        if not name:
-            return None
-        return fetch_one(f"select * from {table} where upper(name)=upper(%s)", [name])
-    if catalog == "frequencies":
-        if data.get("months") is not None:
-            return fetch_one(f"select * from {table} where months=%s", [data["months"]])
-        name = data.get("name")
-        if name:
-            return fetch_one(f"select * from {table} where upper(name)=upper(%s)", [name])
-        return None
-    if catalog == "element-models":
-        element_name = data.get("element_name")
-        full_name = data.get("full_name")
-        if not element_name or not full_name:
-            return None
-        return fetch_one(
-            f"select * from {table} where upper(element_name)=upper(%s) and upper(full_name)=upper(%s)",
-            [element_name, full_name],
-        )
-    if catalog == "pricing":
-        element_name = data.get("element_name")
-        type_name = data.get("type_name")
-        if not element_name:
-            return None
-        return fetch_one(
-            f"select * from {table} where upper(element_name)=upper(%s) and coalesce(upper(type_name),'')=coalesce(upper(%s),'')",
-            [element_name, type_name],
-        )
-    return None
-
-
-def _reactivate_if_needed(catalog: str, item: dict[str, Any]) -> dict[str, Any]:
-    if item.get("active") is False:
-        table = _config(catalog)["table"]
-        updated = execute(f"update {table} set active=true where id=%s returning *", [item["id"]])
-        if updated:
-            return updated
-    return item
-
-
 @router.get("")
 def catalog_index(user=Depends(get_current_user)):
     return [
@@ -232,42 +204,6 @@ def list_catalog(
     return fetch_all(sql, params)
 
 
-@router.post("/{catalog}/ensure")
-def ensure_catalog_item(catalog: str, payload: CatalogPayload, user=Depends(require_roles("admin", "certificador", "aprobador"))):
-    """Crea un valor de catálogo si no existe y lo devuelve.
-
-    Se usa desde Crear Certificado para que los textos nuevos que escriba el usuario
-    queden disponibles como sugerencias la próxima vez.
-    """
-    cfg = _config(catalog)
-    table = cfg["table"]
-    allowed = cfg["fields"]
-    data = _clean_data(payload, allowed)
-
-    if catalog in {"units", "test-types", "elements", "sizes", "frequencies", "pressure-rows", "payment-terms"}:
-        if not data.get("name"):
-            raise HTTPException(status_code=400, detail="El nombre es obligatorio")
-    if catalog == "element-models":
-        if not data.get("element_name") or not data.get("full_name"):
-            raise HTTPException(status_code=400, detail="Elemento y nombre completo son obligatorios")
-    if catalog == "pricing":
-        if not data.get("element_name"):
-            raise HTTPException(status_code=400, detail="El elemento es obligatorio")
-
-    data = _sync_element_id_if_needed(catalog, data)
-    existing = _find_existing_catalog_item(catalog, data)
-    if existing:
-        return _reactivate_if_needed(catalog, existing)
-
-    cols = list(data.keys())
-    placeholders = ",".join(["%s"] * len(cols))
-    row = execute(
-        f"insert into {table} ({','.join(cols)}) values ({placeholders}) returning *",
-        [data[c] for c in cols],
-    )
-    return row
-
-
 @router.post("/{catalog}")
 def create_catalog_item(catalog: str, payload: CatalogPayload, user=Depends(require_roles("admin"))):
     cfg = _config(catalog)
@@ -275,7 +211,7 @@ def create_catalog_item(catalog: str, payload: CatalogPayload, user=Depends(requ
     allowed = cfg["fields"]
     data = _clean_data(payload, allowed)
 
-    if catalog in {"units", "test-types", "elements", "sizes", "frequencies", "pressure-rows", "payment-terms"}:
+    if catalog in {"units", "test-types", "elements", "sizes", "brands", "serial-numbers", "ranges", "frequencies", "pressure-rows", "payment-terms"}:
         if not data.get("name"):
             raise HTTPException(status_code=400, detail="El nombre es obligatorio")
     if catalog == "element-models":
@@ -317,6 +253,43 @@ def update_catalog_item(catalog: str, item_id: str, payload: CatalogUpdatePayloa
     if not row:
         raise HTTPException(status_code=404, detail="Registro no encontrado")
     return row
+
+
+@router.post("/{catalog}/ensure")
+def ensure_catalog_item(catalog: str, payload: CatalogPayload, user=Depends(get_current_user)):
+    cfg = _config(catalog)
+    table = cfg["table"]
+    allowed = cfg["fields"]
+    data = _clean_data(payload, allowed)
+
+    if catalog in {"units", "test-types", "elements", "sizes", "brands", "serial-numbers", "ranges", "frequencies", "pressure-rows", "payment-terms"}:
+        if not data.get("name"):
+            raise HTTPException(status_code=400, detail="El nombre es obligatorio")
+        existing = fetch_one(f"select * from {table} where upper(name)=upper(%s)", [data["name"]])
+        if existing:
+            if existing.get("active") is False:
+                return execute(f"update {table} set active=true where id=%s returning *", [existing["id"]])
+            return existing
+
+    if catalog == "element-models":
+        if not data.get("element_name") or not data.get("full_name"):
+            raise HTTPException(status_code=400, detail="Elemento y nombre completo son obligatorios")
+        existing = fetch_one(
+            f"select * from {table} where upper(element_name)=upper(%s) and upper(full_name)=upper(%s)",
+            [data["element_name"], data["full_name"]],
+        )
+        if existing:
+            if existing.get("active") is False:
+                return execute(f"update {table} set active=true where id=%s returning *", [existing["id"]])
+            return existing
+
+    data = _sync_element_id_if_needed(catalog, data)
+    cols = list(data.keys())
+    placeholders = ",".join(["%s"] * len(cols))
+    return execute(
+        f"insert into {table} ({','.join(cols)}) values ({placeholders}) returning *",
+        [data[c] for c in cols],
+    )
 
 
 @router.delete("/{catalog}/{item_id}")

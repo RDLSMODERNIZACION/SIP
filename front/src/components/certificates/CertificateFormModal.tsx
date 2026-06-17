@@ -9,7 +9,7 @@ import {
   getNextCertificateNumber,
   type CertificateCreatePayload,
 } from "@/src/lib/certificatesApi";
-import { createEquipment, getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
+import { createEquipment, getClients, getEquipment, getPatterns, updateEquipment } from "@/src/lib/resourcesApi";
 import {
   deleteCatalogItem,
   ensureCatalogItem,
@@ -24,10 +24,14 @@ const FIXED_CERTIFICATE_REVISION = "5";
 const FIXED_CERTIFICATE_VALIDITY = "2024-10-01";
 const DEFAULT_FREQUENCY_MONTHS = 60;
 
+type EquipmentSuggestionField = "brand" | "serial_number" | "range_value";
+
 type SuggestionItem = {
   label: string;
   id?: string;
   catalog?: CatalogCode;
+  equipmentField?: EquipmentSuggestionField;
+  equipmentIds?: string[];
 };
 
 function normalizeText(value: unknown) {
@@ -63,6 +67,16 @@ function uniqueSuggestionItems(items: SuggestionItem[]) {
     // reemplazamos para poder mostrar la X de eliminación.
     if (!result[existingIndex].id && cleanItem.id) {
       result[existingIndex] = cleanItem;
+      return;
+    }
+
+    if (cleanItem.equipmentIds?.length) {
+      const currentIds = result[existingIndex].equipmentIds || [];
+      result[existingIndex] = {
+        ...result[existingIndex],
+        equipmentField: result[existingIndex].equipmentField || cleanItem.equipmentField,
+        equipmentIds: Array.from(new Set([...currentIds, ...cleanItem.equipmentIds])),
+      };
     }
   });
   return result.sort((a, b) => a.label.localeCompare(b.label));
@@ -202,12 +216,14 @@ function CatalogAutocomplete({
   async function handleDelete(item: SuggestionItem, event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
-    if (!item.id || !item.catalog || !onDeleteSuggestion) return;
+    const canDeleteCatalog = Boolean(item.id && item.catalog);
+    const canDeleteEquipmentReference = Boolean(item.equipmentField && item.equipmentIds?.length);
+    if ((!canDeleteCatalog && !canDeleteEquipmentReference) || !onDeleteSuggestion) return;
     const confirmed = window.confirm(`¿Eliminar "${item.label}" de las sugerencias?`);
     if (!confirmed) return;
 
     try {
-      setDeletingId(item.id);
+      setDeletingId(item.id || `${item.equipmentField}-${item.label}`);
       await onDeleteSuggestion(item);
       if (sameText(value, item.label)) onChange("");
     } finally {
@@ -241,7 +257,8 @@ function CatalogAutocomplete({
       {open && filtered.length > 0 ? (
         <div className="absolute z-[80] mt-2 max-h-72 w-full min-w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl md:min-w-[420px]">
           {filtered.map((item) => {
-            const canDelete = Boolean(item.id && item.catalog && onDeleteSuggestion);
+            const canDelete = Boolean(((item.id && item.catalog) || (item.equipmentField && item.equipmentIds?.length)) && onDeleteSuggestion);
+            const deleteKey = item.id || `${item.equipmentField || "equipment"}-${item.label}`;
             return (
               <div
                 key={`${item.catalog || "local"}-${item.id || item.label}`}
@@ -262,9 +279,9 @@ function CatalogAutocomplete({
                     title="Eliminar sugerencia"
                     className="mt-[-2px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 opacity-100 hover:bg-red-50 hover:text-red-700 md:opacity-0 md:group-hover:opacity-100"
                     onMouseDown={(event) => handleDelete(item, event)}
-                    disabled={deletingId === item.id}
+                    disabled={deletingId === deleteKey}
                   >
-                    {deletingId === item.id ? "…" : "×"}
+                    {deletingId === deleteKey ? "…" : "×"}
                   </button>
                 ) : null}
               </div>
@@ -422,7 +439,15 @@ export function CertificateFormModal({
   );
 
   const brandSuggestions = useMemo(
-    () => uniqueSuggestionItems([...equipment.map((item) => ({ label: item.brand || "" })), { label: form.brand || "" }]),
+    () =>
+      uniqueSuggestionItems([
+        ...equipment.map((item) => ({
+          label: item.brand || "",
+          equipmentField: "brand" as EquipmentSuggestionField,
+          equipmentIds: item.id ? [item.id] : [],
+        })),
+        { label: form.brand || "" },
+      ]),
     [equipment, form.brand]
   );
 
@@ -431,7 +456,11 @@ export function CertificateFormModal({
       uniqueSuggestionItems([
         ...equipment
           .filter((item) => !form.element || sameText(item.element, form.element))
-          .map((item) => ({ label: item.serial_number || "" })),
+          .map((item) => ({
+            label: item.serial_number || "",
+            equipmentField: "serial_number" as EquipmentSuggestionField,
+            equipmentIds: item.id ? [item.id] : [],
+          })),
         { label: form.serial_number || "" },
       ]),
     [equipment, form.element, form.serial_number]
@@ -442,7 +471,11 @@ export function CertificateFormModal({
       uniqueSuggestionItems([
         ...equipment
           .filter((item) => !form.element || sameText(item.element, form.element))
-          .map((item) => ({ label: item.range_value || "" })),
+          .map((item) => ({
+            label: item.range_value || "",
+            equipmentField: "range_value" as EquipmentSuggestionField,
+            equipmentIds: item.id ? [item.id] : [],
+          })),
         { label: form.range_value || "" },
       ]),
     [equipment, form.element, form.range_value]
@@ -465,16 +498,34 @@ export function CertificateFormModal({
   );
 
   async function handleDeleteSuggestion(item: SuggestionItem) {
-    if (!item.catalog || !item.id) return;
     setError(null);
     try {
-      await deleteCatalogItem(item.catalog, item.id, false);
-      if (item.catalog === "elements") setElements((prev) => prev.filter((current) => current.id !== item.id));
-      if (item.catalog === "element-models") setElementModels((prev) => prev.filter((current) => current.id !== item.id));
-      if (item.catalog === "units") setUnits((prev) => prev.filter((current) => current.id !== item.id));
-      if (item.catalog === "sizes") setSizes((prev) => prev.filter((current) => current.id !== item.id));
-      if (item.catalog === "test-types") setTestTypes((prev) => prev.filter((current) => current.id !== item.id));
-      if (item.catalog === "pressure-rows") setPressureRows((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog && item.id) {
+        await deleteCatalogItem(item.catalog, item.id, false);
+        if (item.catalog === "elements") setElements((prev) => prev.filter((current) => current.id !== item.id));
+        if (item.catalog === "element-models") setElementModels((prev) => prev.filter((current) => current.id !== item.id));
+        if (item.catalog === "units") setUnits((prev) => prev.filter((current) => current.id !== item.id));
+        if (item.catalog === "sizes") setSizes((prev) => prev.filter((current) => current.id !== item.id));
+        if (item.catalog === "test-types") setTestTypes((prev) => prev.filter((current) => current.id !== item.id));
+        if (item.catalog === "pressure-rows") setPressureRows((prev) => prev.filter((current) => current.id !== item.id));
+        return;
+      }
+
+      if (item.equipmentField && item.equipmentIds?.length) {
+        await Promise.all(
+          item.equipmentIds.map((equipmentId) =>
+            updateEquipment(equipmentId, { [item.equipmentField as EquipmentSuggestionField]: null } as Partial<Equipment>)
+          )
+        );
+
+        setEquipment((prev) =>
+          prev.map((current) =>
+            item.equipmentIds?.includes(current.id)
+              ? { ...current, [item.equipmentField as EquipmentSuggestionField]: null }
+              : current
+          )
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo eliminar la sugerencia");
       throw err;
@@ -819,6 +870,7 @@ export function CertificateFormModal({
               <CatalogAutocomplete
                 value={form.brand || ""}
                 suggestions={brandSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
                 onChange={(value) => update("brand", value)}
                 placeholder="Escribir"
               />
@@ -827,6 +879,7 @@ export function CertificateFormModal({
               <CatalogAutocomplete
                 value={form.serial_number || ""}
                 suggestions={serialSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
                 onChange={(value) => update("serial_number", value)}
                 placeholder="Escribir"
               />
@@ -835,6 +888,7 @@ export function CertificateFormModal({
               <CatalogAutocomplete
                 value={form.range_value || ""}
                 suggestions={rangeSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
                 onChange={(value) => update("range_value", value)}
                 placeholder="Escribir"
               />

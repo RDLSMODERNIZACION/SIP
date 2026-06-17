@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { Field, inputClass } from "@/src/components/ui/Field";
@@ -10,7 +10,13 @@ import {
   type CertificateCreatePayload,
 } from "@/src/lib/certificatesApi";
 import { getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
-import { ensureCatalogItem, getCatalogItems, type CatalogItem } from "@/src/lib/catalogsApi";
+import {
+  deleteCatalogItem,
+  ensureCatalogItem,
+  getCatalogItems,
+  type CatalogCode,
+  type CatalogItem,
+} from "@/src/lib/catalogsApi";
 import type { Client, Equipment, Pattern } from "@/src/types";
 
 const FIXED_CERTIFICATE_CODE = "CE-SIP-01";
@@ -18,6 +24,11 @@ const FIXED_CERTIFICATE_REVISION = "5";
 const FIXED_CERTIFICATE_VALIDITY = "2024-10-01";
 const DEFAULT_FREQUENCY_MONTHS = 60;
 
+type SuggestionItem = {
+  label: string;
+  id?: string;
+  catalog?: CatalogCode;
+};
 
 function normalizeText(value: unknown) {
   return String(value || "").trim().replace(/\s+/g, " ");
@@ -34,6 +45,27 @@ function uniqueTexts(values: Array<string | null | undefined>) {
     if (clean && !result.some((item) => sameText(item, clean))) result.push(clean);
   });
   return result.sort((a, b) => a.localeCompare(b));
+}
+
+function uniqueSuggestionItems(items: SuggestionItem[]) {
+  const result: SuggestionItem[] = [];
+  items.forEach((item) => {
+    const label = normalizeText(item.label);
+    if (!label) return;
+    const existingIndex = result.findIndex((current) => sameText(current.label, label));
+    const cleanItem = { ...item, label };
+    if (existingIndex === -1) {
+      result.push(cleanItem);
+      return;
+    }
+
+    // Si ya existía como sugerencia histórica sin id, pero ahora viene desde catálogo,
+    // reemplazamos para poder mostrar la X de eliminación.
+    if (!result[existingIndex].id && cleanItem.id) {
+      result[existingIndex] = cleanItem;
+    }
+  });
+  return result.sort((a, b) => a.label.localeCompare(b.label));
 }
 
 async function settleCatalogSaves(tasks: Array<Promise<unknown>>) {
@@ -121,6 +153,115 @@ function defaultForm(certificateNumber = ""): CertificateCreatePayload {
 
 function fixedInputClass(editable: boolean) {
   return `${inputClass} ${editable ? "" : "cursor-not-allowed bg-slate-100 text-slate-500"}`;
+}
+
+function CatalogAutocomplete({
+  value,
+  onChange,
+  suggestions,
+  placeholder = "Escribir o elegir",
+  onDeleteSuggestion,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  suggestions: SuggestionItem[];
+  placeholder?: string;
+  onDeleteSuggestion?: (item: SuggestionItem) => Promise<void> | void;
+}) {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    const query = normalizeText(value).toUpperCase();
+    const result = query
+      ? suggestions.filter((item) => item.label.toUpperCase().includes(query))
+      : suggestions;
+    return result.slice(0, 12);
+  }, [suggestions, value]);
+
+  useEffect(() => {
+    function handleClick(event: MouseEvent) {
+      if (!wrapperRef.current) return;
+      if (!wrapperRef.current.contains(event.target as Node)) setOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  async function handleDelete(item: SuggestionItem, event: ReactMouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!item.id || !item.catalog || !onDeleteSuggestion) return;
+    const confirmed = window.confirm(`¿Eliminar "${item.label}" de las sugerencias?`);
+    if (!confirmed) return;
+
+    try {
+      setDeletingId(item.id);
+      await onDeleteSuggestion(item);
+      if (sameText(value, item.label)) onChange("");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <div className="relative">
+        <input
+          className={`${inputClass} pr-10`}
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+        />
+        <button
+          type="button"
+          className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-slate-500 hover:text-slate-900"
+          onClick={() => setOpen((current) => !current)}
+          aria-label="Mostrar sugerencias"
+        >
+          ▾
+        </button>
+      </div>
+
+      {open && filtered.length > 0 ? (
+        <div className="absolute z-[80] mt-2 max-h-72 w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl">
+          {filtered.map((item) => {
+            const canDelete = Boolean(item.id && item.catalog && onDeleteSuggestion);
+            return (
+              <div
+                key={`${item.catalog || "local"}-${item.id || item.label}`}
+                className="group flex cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2 text-slate-800 hover:bg-slate-100"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  onChange(item.label);
+                  setOpen(false);
+                }}
+              >
+                <span className="min-w-0 truncate font-medium">{item.label}</span>
+                {canDelete ? (
+                  <button
+                    type="button"
+                    title="Eliminar sugerencia"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-slate-400 opacity-100 hover:bg-red-50 hover:text-red-700 md:opacity-0 md:group-hover:opacity-100"
+                    onMouseDown={(event) => handleDelete(item, event)}
+                    disabled={deletingId === item.id}
+                  >
+                    {deletingId === item.id ? "…" : "×"}
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 export function CertificateFormModal({
@@ -230,61 +371,81 @@ export function CertificateFormModal({
   );
 
   const elementSuggestions = useMemo(
-    () => uniqueTexts([
-      ...elements.map((item) => textValue(item)),
-      ...equipment.map((item) => item.element),
-      form.element,
+    () => uniqueSuggestionItems([
+      ...elements.map((item) => ({ label: textValue(item), id: item.id, catalog: "elements" as CatalogCode })),
+      ...equipment.map((item) => ({ label: item.element || "" })),
+      { label: form.element || "" },
     ]),
     [elements, equipment, form.element]
   );
 
   const typeModelSuggestions = useMemo(
-    () => uniqueTexts([
-      ...filteredElementModels.map((item) => textValue(item, "full_name")),
+    () => uniqueSuggestionItems([
+      ...filteredElementModels.map((item) => ({ label: textValue(item, "full_name"), id: item.id, catalog: "element-models" as CatalogCode })),
       ...equipment
         .filter((item) => !form.element || sameText(item.element, form.element))
-        .map((item) => item.type_model),
-      form.type_model,
+        .map((item) => ({ label: item.type_model || "" })),
+      { label: form.type_model || "" },
     ]),
     [filteredElementModels, equipment, form.element, form.type_model]
   );
 
   const unitSuggestions = useMemo(
-    () => uniqueTexts([
-      ...units.map((item) => textValue(item)),
-      ...equipment.map((item) => item.unit),
-      form.unit,
-      form.measurement_unit,
+    () => uniqueSuggestionItems([
+      ...units.map((item) => ({ label: textValue(item), id: item.id, catalog: "units" as CatalogCode })),
+      ...equipment.map((item) => ({ label: item.unit || "" })),
+      { label: form.unit || "" },
+      { label: form.measurement_unit || "" },
     ]),
     [units, equipment, form.unit, form.measurement_unit]
   );
 
   const sizeSuggestions = useMemo(
-    () => uniqueTexts([
-      ...sizes.map((item) => textValue(item)),
-      ...equipment.map((item) => item.size_value),
-      form.size_value,
+    () => uniqueSuggestionItems([
+      ...sizes.map((item) => ({ label: textValue(item), id: item.id, catalog: "sizes" as CatalogCode })),
+      ...equipment.map((item) => ({ label: item.size_value || "" })),
+      { label: form.size_value || "" },
     ]),
     [sizes, equipment, form.size_value]
   );
 
   const brandSuggestions = useMemo(
-    () => uniqueTexts([...equipment.map((item) => item.brand), form.brand]),
+    () => uniqueSuggestionItems([...equipment.map((item) => ({ label: item.brand || "" })), { label: form.brand || "" }]),
     [equipment, form.brand]
   );
 
   const testTypeSuggestions = useMemo(
-    () => uniqueTexts([...testTypes.map((item) => textValue(item)), form.test_type]),
+    () => uniqueSuggestionItems([
+      ...testTypes.map((item) => ({ label: textValue(item), id: item.id, catalog: "test-types" as CatalogCode })),
+      { label: form.test_type || "" },
+    ]),
     [testTypes, form.test_type]
   );
 
   const pressureLabelSuggestions = useMemo(
-    () => uniqueTexts([
-      ...pressureRows.map((item) => textValue(item)),
-      ...(form.test_rows || []).map((row) => row.pressure_label),
+    () => uniqueSuggestionItems([
+      ...pressureRows.map((item) => ({ label: textValue(item), id: item.id, catalog: "pressure-rows" as CatalogCode })),
+      ...(form.test_rows || []).map((row) => ({ label: row.pressure_label })),
     ]),
     [pressureRows, form.test_rows]
   );
+
+  async function handleDeleteSuggestion(item: SuggestionItem) {
+    if (!item.catalog || !item.id) return;
+    setError(null);
+    try {
+      await deleteCatalogItem(item.catalog, item.id, false);
+      if (item.catalog === "elements") setElements((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "element-models") setElementModels((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "units") setUnits((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "sizes") setSizes((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "test-types") setTestTypes((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "pressure-rows") setPressureRows((prev) => prev.filter((current) => current.id !== item.id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar la sugerencia");
+      throw err;
+    }
+  }
 
   async function saveNewCatalogSuggestions(payload: CertificateCreatePayload) {
     const tasks: Array<Promise<unknown>> = [];
@@ -518,72 +679,54 @@ export function CertificateFormModal({
           <h3 className="text-sm font-bold text-slate-900">Datos del equipo</h3>
           <div className="grid gap-4 md:grid-cols-4">
             <Field label="Elemento">
-              <input
-                className={inputClass}
-                list="catalog-elementos"
+              <CatalogAutocomplete
                 value={form.element || ""}
-                onChange={(e) => setForm((prev) => ({ ...prev, element: e.target.value, type_model: prev.element && !sameText(prev.element, e.target.value) ? "" : prev.type_model }))}
-                placeholder="Escribir o elegir"
+                suggestions={elementSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
+                onChange={(value) => setForm((prev) => ({ ...prev, element: value, type_model: prev.element && !sameText(prev.element, value) ? "" : prev.type_model }))}
               />
-              <datalist id="catalog-elementos">
-                {elementSuggestions.map((value) => <option key={value} value={value} />)}
-              </datalist>
             </Field>
             <Field label="Tipo / Modelo">
-              <input
-                className={inputClass}
-                list="catalog-modelos"
+              <CatalogAutocomplete
                 value={form.type_model || ""}
-                onChange={(e) => update("type_model", e.target.value)}
-                placeholder="Escribir o elegir"
+                suggestions={typeModelSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
+                onChange={(value) => update("type_model", value)}
               />
-              <datalist id="catalog-modelos">
-                {typeModelSuggestions.map((value) => <option key={value} value={value} />)}
-              </datalist>
             </Field>
             <Field label="Marca">
-              <input className={inputClass} list="catalog-marcas" value={form.brand || ""} onChange={(e) => update("brand", e.target.value)} placeholder="Escribir" />
-              <datalist id="catalog-marcas">
-                {brandSuggestions.map((value) => <option key={value} value={value} />)}
-              </datalist>
+              <CatalogAutocomplete
+                value={form.brand || ""}
+                suggestions={brandSuggestions}
+                onChange={(value) => update("brand", value)}
+                placeholder="Escribir"
+              />
             </Field>
             <Field label="Serie"><input className={inputClass} value={form.serial_number || ""} onChange={(e) => update("serial_number", e.target.value)} /></Field>
             <Field label="Rango"><input className={inputClass} value={form.range_value || ""} onChange={(e) => update("range_value", e.target.value)} /></Field>
             <Field label="Unidad rango">
-              <input
-                className={inputClass}
-                list="catalog-unidades-rango"
+              <CatalogAutocomplete
                 value={form.unit || ""}
-                onChange={(e) => update("unit", e.target.value)}
-                placeholder="Escribir o elegir"
+                suggestions={unitSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
+                onChange={(value) => update("unit", value)}
               />
-              <datalist id="catalog-unidades-rango">
-                {unitSuggestions.map((value) => <option key={value} value={value} />)}
-              </datalist>
             </Field>
             <Field label="Size">
-              <input
-                className={inputClass}
-                list="catalog-sizes"
+              <CatalogAutocomplete
                 value={form.size_value || ""}
-                onChange={(e) => update("size_value", e.target.value)}
-                placeholder="Escribir o elegir"
+                suggestions={sizeSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
+                onChange={(value) => update("size_value", value)}
               />
-              <datalist id="catalog-sizes">
-                {sizeSuggestions.map((value) => <option key={value} value={value} />)}
-              </datalist>
             </Field>
             <Field label="Unidad ensayo">
-              <input
-                className={inputClass}
-                list="catalog-unidades-ensayo"
+              <CatalogAutocomplete
                 value={form.measurement_unit || ""}
-                onChange={(e) => update("measurement_unit", e.target.value)}
-                placeholder="Escribir o elegir"
+                suggestions={unitSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
+                onChange={(value) => update("measurement_unit", value)}
               />
-              <datalist id="catalog-unidades-ensayo">
-                {unitSuggestions.map((value) => <option key={value} value={value} />)}
-              </datalist>
             </Field>
           </div>
         </section>
@@ -592,16 +735,12 @@ export function CertificateFormModal({
           <h3 className="text-sm font-bold text-slate-900">Ensayo y resultado</h3>
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Tipo de prueba">
-              <input
-                className={inputClass}
-                list="catalog-tipos-prueba"
+              <CatalogAutocomplete
                 value={form.test_type || ""}
-                onChange={(e) => update("test_type", e.target.value)}
-                placeholder="Escribir o elegir"
+                suggestions={testTypeSuggestions}
+                onDeleteSuggestion={handleDeleteSuggestion}
+                onChange={(value) => update("test_type", value)}
               />
-              <datalist id="catalog-tipos-prueba">
-                {testTypeSuggestions.map((value) => <option key={value} value={value} />)}
-              </datalist>
             </Field>
             <Field label="Método / protocolo"><textarea className={inputClass} rows={4} value={form.reference_method || ""} onChange={(e) => update("reference_method", e.target.value)} /></Field>
             <Field label="Conclusiones"><textarea className={inputClass} rows={4} value={form.conclusions || ""} onChange={(e) => update("conclusions", e.target.value)} /></Field>
@@ -627,12 +766,24 @@ export function CertificateFormModal({
                 {(form.test_rows || []).map((row, index) => (
                   <tr key={row.row_order} className="border-t border-slate-100">
                     <td className="p-2">
-                      <input className={inputClass} list="catalog-presiones" value={row.pressure_label} onChange={(e) => updateTestRow(index, "pressure_label", e.target.value)} />
+                      <CatalogAutocomplete
+                        value={row.pressure_label}
+                        suggestions={pressureLabelSuggestions}
+                        onDeleteSuggestion={handleDeleteSuggestion}
+                        onChange={(value) => updateTestRow(index, "pressure_label", value)}
+                      />
                     </td>
                     <td className="p-2">
                       <div className="flex gap-2">
                         <input className={inputClass} type="number" value={row.range_value ?? ""} onChange={(e) => updateTestRow(index, "range_value", e.target.value)} />
-                        <input className={`${inputClass} max-w-24`} list="catalog-unidades-filas" value={row.unit || ""} onChange={(e) => updateTestRow(index, "unit", e.target.value)} />
+                        <div className="w-32 shrink-0">
+                          <CatalogAutocomplete
+                            value={row.unit || ""}
+                            suggestions={unitSuggestions}
+                            onDeleteSuggestion={handleDeleteSuggestion}
+                            onChange={(value) => updateTestRow(index, "unit", value)}
+                          />
+                        </div>
                       </div>
                     </td>
                     <td className="p-2"><input className={inputClass} value={row.acceptance_criteria || ""} onChange={(e) => updateTestRow(index, "acceptance_criteria", e.target.value)} /></td>
@@ -642,12 +793,6 @@ export function CertificateFormModal({
                 ))}
               </tbody>
             </table>
-            <datalist id="catalog-presiones">
-              {pressureLabelSuggestions.map((value) => <option key={value} value={value} />)}
-            </datalist>
-            <datalist id="catalog-unidades-filas">
-              {unitSuggestions.map((value) => <option key={value} value={value} />)}
-            </datalist>
           </div>
         </section>
 

@@ -48,7 +48,6 @@ export async function getCatalogItems(catalog: CatalogCode, params?: { q?: strin
   return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${query}`);
 }
 
-
 export async function ensureCatalogItem(catalog: CatalogCode, payload: Partial<CatalogItem>) {
   return apiFetch<CatalogItem>(`/catalogs/${catalog}/ensure`, {
     method: "POST",
@@ -72,7 +71,7 @@ export async function updateCatalogItem(catalog: CatalogCode, id: string, payloa
 
 export async function deleteCatalogItem(catalog: CatalogCode, id: string, hard = false) {
   const query = hard ? "?hard=true" : "";
-  return apiFetch<{ ok: boolean }>(`/catalogs/${catalog}/${id}${query}`, { method: "DELETE" });
+  return apiFetch<{ ok: boolean; item?: CatalogItem }>(`/catalogs/${catalog}/${id}${query}`, { method: "DELETE" });
 }
 
 function cleanPayload<T>(value: T): T {

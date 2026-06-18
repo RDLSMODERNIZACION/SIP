@@ -391,26 +391,32 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
     c.setFillColor(LIGHTER)
     c.roundRect(x, y + h - 8 * mm, w, 8 * mm, 2 * mm, stroke=0, fill=1)
     c.setFillColor(SLATE)
-    c.setFont("Helvetica-Bold", 6.6)
+    c.setFont("Helvetica-Bold", 6.4)
     c.drawString(x + 3 * mm, y + h - 5.2 * mm, "VALIDACIÓN DE AUTENTICIDAD")
-    qr_size = min(h - 12 * mm, 22 * mm)
+
+    # QR más grande y alineado dentro de la tarjeta. En versiones previas quedaba
+    # demasiado chico porque el alto de la tarjeta era bajo.
+    qr_size = min(27 * mm, h - 12 * mm, w * 0.42)
+    qr_x = x + 4 * mm
+    qr_y = y + 4 * mm
     try:
-        c.drawImage(_qr_image_reader(cert), x + 3 * mm, y + 3.2 * mm, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
+        c.drawImage(_qr_image_reader(cert), qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
     except Exception:
         c.setFillColor(RED)
         c.setFont("Helvetica", 6)
-        c.drawString(x + 4 * mm, y + 13 * mm, "QR no disponible")
+        c.drawString(qr_x, y + 13 * mm, "QR no disponible")
 
-    tx = x + 3 * mm + qr_size + 4 * mm
+    tx = qr_x + qr_size + 5 * mm
     c.setFillColor(MUTED)
-    c.setFont("Helvetica", 5.5)
+    c.setFont("Helvetica", 5.6)
     c.drawString(tx, y + h - 14 * mm, "Documento")
     c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 6.1)
-    c.drawString(tx, y + h - 17.8 * mm, _display(cert.get("certificate_number")))
+    c.setFont("Helvetica-Bold", 6.4)
+    c.drawString(tx, y + h - 18.2 * mm, _display(cert.get("certificate_number")))
     c.setFillColor(MUTED)
-    c.setFont("Helvetica", 5.3)
-    c.drawString(tx, y + 4.5 * mm, "Escanear para verificar autenticidad")
+    c.setFont("Helvetica", 5.4)
+    c.drawString(tx, y + 8.4 * mm, "Escanear para verificar")
+    c.drawString(tx, y + 5.2 * mm, "autenticidad")
     c.restoreState()
 
 
@@ -584,8 +590,8 @@ def _draw_hydrostatic_section(c: canvas.Canvas, result: dict | None, chart_url: 
 
 def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
     y = _section_title(c, "Emisión y control", y)
-    left_w = CONTENT_W - 60 * mm
-    box_h = 23 * mm
+    left_w = CONTENT_W - 68 * mm
+    box_h = 31 * mm
     note_parts = [
         "Documento emitido para impresión, revisión y firma por el responsable autorizado.",
         "La información técnica corresponde a los datos cargados y aprobados en el sistema.",
@@ -596,10 +602,10 @@ def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
     c.setFillColor(LIGHTER)
     c.roundRect(MARGIN_X, y - box_h, left_w - 5 * mm, box_h, 2 * mm, stroke=0, fill=1)
     p = _p(notes, PS, "")
-    p.wrapOn(c, left_w - 11 * mm, box_h - 5 * mm)
-    p.drawOn(c, MARGIN_X + 3 * mm, y - box_h + 5 * mm)
-    _draw_qr_card(c, cert, MARGIN_X + left_w, y - box_h, 60 * mm, box_h)
-    return y - box_h - 5 * mm
+    p.wrapOn(c, left_w - 11 * mm, box_h - 6 * mm)
+    p.drawOn(c, MARGIN_X + 3 * mm, y - box_h + 6 * mm)
+    _draw_qr_card(c, cert, MARGIN_X + left_w, y - box_h, 68 * mm, box_h)
+    return y - box_h - 6 * mm
 
 
 def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
@@ -697,12 +703,19 @@ def _draw_annex_a_page(c: canvas.Canvas, cert: dict, detail: dict):
     y -= _table(c, rows, MARGIN_X, y, [34 * mm, 64 * mm, 34 * mm, CONTENT_W - 132 * mm]) + 8 * mm
 
     if chart_url:
-        y = _draw_text_box(c, "Archivo adjunto", f"El anexo se encuentra disponible como archivo técnico asociado al certificado: {chart_url}", y, 19 * mm, "—")
+        y = _draw_text_box(
+            c,
+            "Archivo adjunto",
+            f"El ANEXO A se encuentra disponible para descarga desde la web del cliente, dentro del legajo del certificado N° {cert.get('certificate_number')}. Debe consultarse bajo ese número de certificado como archivo técnico asociado.",
+            y,
+            21 * mm,
+            "—",
+        )
     else:
         y = _draw_text_box(c, "Archivo adjunto", "El gráfico/carta de prueba hidráulica todavía no fue cargado. El certificado no debería aprobarse sin este adjunto cuando la plantilla lo requiere.", y, 19 * mm, "—")
 
     # Page 3 is intentionally reserved for annex control, QR and signatures.
-    _draw_emission_control(c, cert, 88 * mm)
+    _draw_emission_control(c, cert, 98 * mm)
     _draw_signature_area(c, cert, 22 * mm)
     _draw_footer(c)
 

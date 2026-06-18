@@ -6,82 +6,91 @@ export type CatalogCode =
   | "elements"
   | "element-models"
   | "sizes"
+  | "brands"
+  | "serial-numbers"
+  | "ranges"
   | "frequencies"
-  | "pressure-rows"
-  | "payment-terms"
-  | "pricing";
-
-export type CatalogDefinition = {
-  code: CatalogCode;
-  label: string;
-  fields: string[];
-};
+  | "pressure-rows";
 
 export type CatalogItem = {
   id: string;
   name?: string | null;
+  code?: string | null;
+  active?: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+
+  // element-models
+  element_id?: string | null;
   element_name?: string | null;
-  default_frequency_months?: number | null;
   part_1?: string | null;
   part_2?: string | null;
   part_3?: string | null;
   full_name?: string | null;
+
+  // frequencies / pressure rows
   months?: number | null;
   row_order?: number | null;
-  type_name?: string | null;
-  price?: number | null;
-  estimated_minutes?: number | null;
-  active?: boolean;
-  created_at?: string;
-  updated_at?: string;
+
+  [key: string]: unknown;
 };
 
-export async function getCatalogDefinitions() {
-  return apiFetch<CatalogDefinition[]>("/catalogs");
-}
-
-export async function getCatalogItems(catalog: CatalogCode, params?: { q?: string; active?: boolean }) {
+function queryString(params?: Record<string, string | number | boolean | null | undefined>) {
+  if (!params) return "";
   const search = new URLSearchParams();
-  if (params?.q) search.set("q", params.q);
-  if (typeof params?.active === "boolean") search.set("active", String(params.active));
-  const query = search.toString() ? `?${search.toString()}` : "";
-  return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${query}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    search.set(key, String(value));
+  });
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
 }
 
-export async function ensureCatalogItem(catalog: CatalogCode, payload: Partial<CatalogItem>) {
+export async function getCatalogItems(
+  catalog: CatalogCode,
+  params?: { active?: boolean; q?: string }
+): Promise<CatalogItem[]> {
+  return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${queryString(params)}`);
+}
+
+export async function ensureCatalogItem(
+  catalog: CatalogCode,
+  payload: Record<string, unknown>
+): Promise<CatalogItem> {
   return apiFetch<CatalogItem>(`/catalogs/${catalog}/ensure`, {
     method: "POST",
-    body: JSON.stringify(cleanPayload(payload)),
+    body: JSON.stringify(payload),
   });
 }
 
-export async function createCatalogItem(catalog: CatalogCode, payload: Partial<CatalogItem>) {
+export async function createCatalogItem(
+  catalog: CatalogCode,
+  payload: Record<string, unknown>
+): Promise<CatalogItem> {
   return apiFetch<CatalogItem>(`/catalogs/${catalog}`, {
     method: "POST",
-    body: JSON.stringify(cleanPayload(payload)),
+    body: JSON.stringify(payload),
   });
 }
 
-export async function updateCatalogItem(catalog: CatalogCode, id: string, payload: Partial<CatalogItem>) {
+export async function updateCatalogItem(
+  catalog: CatalogCode,
+  id: string,
+  payload: Record<string, unknown>
+): Promise<CatalogItem> {
   return apiFetch<CatalogItem>(`/catalogs/${catalog}/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(cleanPayload(payload)),
+    body: JSON.stringify(payload),
   });
 }
 
-export async function deleteCatalogItem(catalog: CatalogCode, id: string, hard = false) {
-  const query = hard ? "?hard=true" : "";
-  return apiFetch<{ ok: boolean; item?: CatalogItem }>(`/catalogs/${catalog}/${id}${query}`, { method: "DELETE" });
-}
-
-function cleanPayload<T>(value: T): T {
-  if (Array.isArray(value)) return value.map((item) => cleanPayload(item)) as T;
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .map(([k, v]) => [k, v === "" ? undefined : cleanPayload(v)])
-        .filter(([, v]) => v !== undefined)
-    ) as T;
-  }
-  return value;
+export async function deleteCatalogItem(
+  catalog: CatalogCode,
+  id: string,
+  hard = false
+): Promise<{ ok: boolean; deleted?: boolean; deactivated?: boolean }> {
+  return apiFetch<{ ok: boolean; deleted?: boolean; deactivated?: boolean }>(
+    `/catalogs/${catalog}/${id}${queryString({ hard })}`,
+    { method: "DELETE" }
+  );
 }

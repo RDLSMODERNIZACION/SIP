@@ -6,6 +6,11 @@ from ..db import fetch_one, fetch_all, execute, get_conn
 from ..config import settings
 
 
+DEFAULT_FREQUENCY_MONTHS = 12
+DEFAULT_RESPONSIBLE_NAME = "Walter Cisterna"
+DEFAULT_RESPONSIBLE_LICENSE = "Jefe Tecnico"
+DEFAULT_AMBIENT_TEMPERATURE = "20° Centigrados"
+
 CERT_COLUMNS = [
     "certificate_number", "certificate_code", "certificate_revision", "certificate_validity",
     "document_type", "template_type", "md_required", "requires_hydraulic_chart",
@@ -102,6 +107,11 @@ def apply_client_requirements(data: dict):
     # si aplica MD o si el gráfico/carta hidráulica es obligatorio.
     client_id = str(data.get("client_id") or "")
     template_type = data.get("template_type") or "general_pressure"
+
+    data["responsible_name"] = data.get("responsible_name") or DEFAULT_RESPONSIBLE_NAME
+    data["responsible_license"] = data.get("responsible_license") or DEFAULT_RESPONSIBLE_LICENSE
+    data["ambient_temperature"] = data.get("ambient_temperature") or DEFAULT_AMBIENT_TEMPERATURE
+    data["test_frequency_months"] = data.get("test_frequency_months") or DEFAULT_FREQUENCY_MONTHS
 
     data["md_required"] = is_md_client(client_id)
     # El gráfico/carta hidráulica se fuerza para plantillas técnicas específicas.
@@ -373,8 +383,7 @@ def create_certificate(payload, user):
                     [cert_id, row["row_order"], row["pressure_label"], row.get("range_value"), row.get("unit"), row.get("acceptance_criteria"), row.get("result"), row.get("observations")],
                 )
 
-            for usage in pattern_usages:
-                add_pattern_usage_tx(cur, cert_id, usage["pattern_id"])
+            ensure_pattern_usage_tx(cur, cert_id, pattern_usages)
 
             save_specific_results_tx(cur, cert_id, specific_data, replace=True)
 
@@ -383,6 +392,35 @@ def create_certificate(payload, user):
                 [cert_id, user["id"], "Certificado creado en borrador."],
             )
     return certificate_detail(str(cert_id), user)
+
+
+
+def get_default_pattern_id():
+    row = fetch_one(
+        """
+        select id
+        from measurement_patterns
+        where active=true
+        order by recalibration_date desc nulls last, created_at asc
+        limit 1
+        """,
+        [],
+    )
+    return row["id"] if row else None
+
+
+def ensure_pattern_usage_tx(cur, cert_id, pattern_usages):
+    usages = pattern_usages or []
+    if usages:
+        for usage in usages:
+            pattern_id = usage.get("pattern_id") if isinstance(usage, dict) else None
+            if pattern_id:
+                add_pattern_usage_tx(cur, cert_id, pattern_id)
+        return
+
+    default_pattern_id = get_default_pattern_id()
+    if default_pattern_id:
+        add_pattern_usage_tx(cur, cert_id, default_pattern_id)
 
 
 def add_pattern_usage_tx(cur, cert_id, pattern_id):
@@ -443,8 +481,7 @@ def update_certificate(cert_id: str, payload, user):
 
             if pattern_usages is not None:
                 cur.execute("delete from certificate_pattern_usage where certificate_id=%s", [cert_id])
-                for usage in pattern_usages:
-                    add_pattern_usage_tx(cur, cert_id, usage["pattern_id"])
+                ensure_pattern_usage_tx(cur, cert_id, pattern_usages)
 
             if any(value is not None for value in specific_data.values()):
                 save_specific_results_tx(cur, cert_id, specific_data, replace=True)

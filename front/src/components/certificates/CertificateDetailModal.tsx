@@ -74,6 +74,8 @@ export function CertificateDetailModal({
   const [detail, setDetail] = useState<DetailAny | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [generatedPdfUrl, setGeneratedPdfUrl] = useState<string | null>(null);
   const [uploadingChart, setUploadingChart] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -93,7 +95,10 @@ export function CertificateDetailModal({
   }
 
   useEffect(() => {
-    if (open) load();
+    if (open) {
+      setGeneratedPdfUrl(null);
+      load();
+    }
   }, [open, certificate?.id]);
 
   async function runAction(action: () => Promise<any>) {
@@ -210,27 +215,29 @@ export function CertificateDetailModal({
     const current = detail?.certificate || certificate;
     if (!current) return;
 
-    const popup = typeof window !== "undefined" ? window.open("about:blank", "_blank") : null;
     try {
-      setBusy(true);
+      // No abrimos una pestaña en blanco antes de generar.
+      // El usuario queda en el modal viendo el estado de carga y recién se abre el PDF cuando la URL existe.
+      setGeneratingPdf(true);
+      setGeneratedPdfUrl(null);
       setError(null);
+
       const result = await generatePdf(current.id);
+      const finalUrl = normalizeFileUrl(result?.pdf_url);
+
       await load();
       onChanged();
 
-      const finalUrl = normalizeFileUrl(result?.pdf_url);
       if (finalUrl) {
-        if (popup) popup.location.href = finalUrl;
-        else window.open(finalUrl, "_blank", "noopener,noreferrer");
+        setGeneratedPdfUrl(finalUrl);
+        window.open(finalUrl, "_blank", "noopener,noreferrer");
       } else {
-        popup?.close();
         setError("El PDF se generó, pero el backend no devolvió una URL.");
       }
     } catch (err) {
-      popup?.close();
       setError(err instanceof Error ? err.message : "No se pudo generar el PDF");
     } finally {
-      setBusy(false);
+      setGeneratingPdf(false);
     }
   }
 
@@ -314,6 +321,17 @@ export function CertificateDetailModal({
       <Modal open={open} title={`Certificado ${c.certificate_number}`} onClose={onClose} wide>
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
         {loading ? <div className="text-sm text-slate-500">Cargando detalle...</div> : null}
+        {generatingPdf ? (
+          <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-700">
+            Generando PDF. No cierres esta ventana; se abrirá automáticamente cuando esté listo.
+          </div>
+        ) : null}
+        {generatedPdfUrl ? (
+          <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+            PDF generado correctamente. Si no se abrió automáticamente, {" "}
+            <a className="font-semibold underline" href={generatedPdfUrl} target="_blank" rel="noreferrer">abrilo desde acá</a>.
+          </div>
+        ) : null}
 
         <input
           ref={hydraulicInputRef}
@@ -455,7 +473,11 @@ export function CertificateDetailModal({
                   <Button variant="secondary" disabled={busy} onClick={handleViewQr}>Ver QR</Button>
                 ) : null}
 
-                {canGenerate ? <Button variant="secondary" disabled={busy} onClick={handleGeneratePdf}>Generar PDF</Button> : null}
+                {canGenerate ? (
+                  <Button variant="secondary" disabled={busy || generatingPdf} onClick={handleGeneratePdf}>
+                    {generatingPdf ? "Generando PDF..." : "Generar PDF"}
+                  </Button>
+                ) : null}
                 {(c.pdf_url || c.status === "approved") ? (
                   <Button variant="secondary" disabled={busy} onClick={handleOpenPdf}>
                     Ver PDF generado

@@ -132,20 +132,26 @@ def _qr_image_reader(cert: dict):
 
 
 
-def _draw_header_text(c: canvas.Canvas, text: str, x: float, y: float, max_w: float, font_size: float = 14.2):
-    """Draw a one or two-line header title without invading the certificate-number box."""
+def _draw_header_text(c: canvas.Canvas, text: str, x: float, y: float, max_w: float, font_size: float = 11.6):
+    """Draw a compact one/two-line title and return its height.
+
+    The PDF header has a fixed certificate-number box on the right. Long
+    document names like "Certificado de Ensayo de Apertura / Seteo" must wrap
+    without colliding with the subtitle or the right-hand box.
+    """
     clean = _display(text, "Certificado técnico")
     style = ParagraphStyle(
         "HEADER_TITLE_DYNAMIC",
         parent=PTITLE,
         fontSize=font_size,
-        leading=font_size + 2,
+        leading=font_size + 1.7,
         textColor=NAVY,
         fontName="Helvetica-Bold",
     )
     paragraph = Paragraph(_esc(clean), style)
-    _, h = paragraph.wrap(max_w, 13 * mm)
+    _, h = paragraph.wrap(max_w, 18 * mm)
     paragraph.drawOn(c, x, y - h)
+    return h
 
 def _draw_logo(c: canvas.Canvas, x: float, y: float, w: float, h: float):
     logo_path = BRANDING_DIR / "sip_logo.png"
@@ -195,10 +201,12 @@ def _template_label(code: str | None) -> str:
 def _document_title(cert: dict, page_no: int) -> str:
     if page_no == 2:
         return "Registro técnico del ensayo"
+    if page_no == 3:
+        return "ANEXO A"
     return _display(cert.get("document_type"), "Certificado técnico")
 
 
-def _draw_header(c: canvas.Canvas, cert: dict, page_no: int):
+def _draw_header(c: canvas.Canvas, cert: dict, page_no: int, total_pages: int = 2):
     c.saveState()
     x = MARGIN_X
     top_y = PAGE_H - 7 * mm
@@ -213,12 +221,15 @@ def _draw_header(c: canvas.Canvas, cert: dict, page_no: int):
 
     title = _document_title(cert, page_no)
     title_x = x + 55 * mm
-    title_max_w = CONTENT_W - 55 * mm - 52 * mm
-    _draw_header_text(c, title, title_x, y + 29.0 * mm, title_max_w, 13.0)
-    c.setFont("Helvetica", 7.1)
+    title_top = y + 29.4 * mm
+    # Leave a safe gap before the certificate-number box.
+    title_max_w = CONTENT_W - 55 * mm - 58 * mm
+    title_h = _draw_header_text(c, title, title_x, title_top, title_max_w, 11.6)
+    c.setFont("Helvetica", 7.0)
     c.setFillColor(MUTED)
     subtitle = _template_label(cert.get("template_type"))
-    c.drawString(title_x, y + 18.8 * mm, subtitle)
+    subtitle_y = max(y + 16.6 * mm, title_top - title_h - 2.1 * mm)
+    c.drawString(title_x, subtitle_y, subtitle)
 
     box_w = 46 * mm
     box_h = 17 * mm
@@ -238,7 +249,7 @@ def _draw_header(c: canvas.Canvas, cert: dict, page_no: int):
         ("Código", cert.get("certificate_code") or "CE-SIP-01"),
         ("Vigencia", _date(cert.get("certificate_validity")) or "01/10/2024"),
         ("Rev.", cert.get("certificate_revision") or "5"),
-        ("Página", f"{page_no} de 2"),
+        ("Página", f"{page_no} de {total_pages}"),
     ]
     col_w = CONTENT_W / 4
     for i, (label, value) in enumerate(meta):
@@ -382,9 +393,9 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
     c.setFillColor(SLATE)
     c.setFont("Helvetica-Bold", 6.6)
     c.drawString(x + 3 * mm, y + h - 5.2 * mm, "VALIDACIÓN DE AUTENTICIDAD")
-    qr_size = min(h - 13 * mm, 27 * mm)
+    qr_size = min(h - 12 * mm, 22 * mm)
     try:
-        c.drawImage(_qr_image_reader(cert), x + 3 * mm, y + 3.5 * mm, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
+        c.drawImage(_qr_image_reader(cert), x + 3 * mm, y + 3.2 * mm, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
     except Exception:
         c.setFillColor(RED)
         c.setFont("Helvetica", 6)
@@ -392,14 +403,14 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
 
     tx = x + 3 * mm + qr_size + 4 * mm
     c.setFillColor(MUTED)
-    c.setFont("Helvetica", 5.7)
-    c.drawString(tx, y + h - 16 * mm, "Documento")
+    c.setFont("Helvetica", 5.5)
+    c.drawString(tx, y + h - 14 * mm, "Documento")
     c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 6.4)
-    c.drawString(tx, y + h - 20 * mm, _display(cert.get("certificate_number")))
+    c.setFont("Helvetica-Bold", 6.1)
+    c.drawString(tx, y + h - 17.8 * mm, _display(cert.get("certificate_number")))
     c.setFillColor(MUTED)
-    c.setFont("Helvetica", 5.6)
-    c.drawString(tx, y + h - 27 * mm, "Escanear para verificar autenticidad")
+    c.setFont("Helvetica", 5.3)
+    c.drawString(tx, y + 4.5 * mm, "Escanear para verificar autenticidad")
     c.restoreState()
 
 
@@ -440,7 +451,7 @@ def _draw_patterns(c: canvas.Canvas, patterns: list[dict], y: float) -> float:
 
 
 def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
-    y = _draw_header(c, cert, 1)
+    y = _draw_header(c, cert, 1, 3 if cert.get("requires_hydraulic_chart") else 2)
 
     y = _section_title(c, "Datos del cliente y documento", y)
     rows = [
@@ -544,14 +555,14 @@ def _draw_relief_section(c: canvas.Canvas, result: dict | None, chart_url: str |
     y = _section_title(c, "Ensayo de apertura / seteo de válvula Relief / PRV", y)
     r = result or {}
     rows = [
-        [_p("Presión seteo requerida", PB), _p(r.get("set_pressure_required")), _p("Presión apertura real", PB), _p(r.get("opening_pressure"))],
+        [_p("Presión de seteo", PB), _p(r.get("set_pressure_required")), _p("Apertura real", PB), _p(r.get("opening_pressure"))],
         [_p("Tolerancia", PB), _p(f"{_display(r.get('tolerance_percent'))}%"), _p("Reasentamiento / cierre", PB), _p(r.get("reclosing_pressure"))],
         [_p("Hermeticidad asiento", PB), _p(r.get("leak_test_pressure")), _p("Resultado hermeticidad", PB), _p(r.get("leak_test_result"))],
         [_p("Precinto", PB), _p(r.get("seal_number")), _p("Resultado final", PB), _p(r.get("result"))],
         [_p("Medio / temperatura", PB), _p(" / ".join(filter(None, [_v(r.get("test_medium")).strip(), _v(r.get("ambient_temperature")).strip()]))), _p("Observaciones", PB), _p(r.get("observations"))],
-        [_p("Anexo A", PB), _p(_annex_label(chart_url, True)), _p("Tipo de anexo", PB), _p("Gráfico/carta de prueba hidráulica")],
+        [_p("Anexo A", PB), _p("Gráfico/carta de prueba hidráulica adjunto al legajo técnico." if chart_url else "Gráfico/carta de prueba hidráulica pendiente de carga."), _p("", PB), _p("")],
     ]
-    th = _table(c, rows, MARGIN_X, y, [40 * mm, 55 * mm, 40 * mm, CONTENT_W - 135 * mm])
+    th = _table(c, rows, MARGIN_X, y, [35 * mm, 60 * mm, 35 * mm, CONTENT_W - 130 * mm])
     return y - th - 6 * mm
 
 
@@ -564,7 +575,7 @@ def _draw_hydrostatic_section(c: canvas.Canvas, result: dict | None, chart_url: 
         [_p("Sostenimiento", PB), _p(f"{_display(r.get('hold_minutes'))} min"), _p("Caída presión", PB), _p(r.get("pressure_drop"))],
         [_p("Medio prueba", PB), _p(r.get("test_medium")), _p("Resultado", PB), _p(r.get("result"))],
         [_p("Control espesores", PB), _p("Sí" if r.get("thickness_control") else "No"), _p("Método espesores", PB), _p(r.get("thickness_method"))],
-        [_p("Valores espesores", PB), _p(r.get("thickness_values")), _p("Anexo A", PB), _p(chart_text)],
+        [_p("Valores espesores", PB), _p(r.get("thickness_values")), _p("Anexo A", PB), _p("Gráfico/carta de prueba hidráulica adjunto al legajo técnico." if chart_url else "Gráfico/carta de prueba hidráulica pendiente de carga.")],
         [_p("Observaciones", PB), _p(r.get("observations")), _p("", PB), _p("")],
     ]
     th = _table(c, rows, MARGIN_X, y, [38 * mm, 57 * mm, 38 * mm, CONTENT_W - 133 * mm])
@@ -573,26 +584,26 @@ def _draw_hydrostatic_section(c: canvas.Canvas, result: dict | None, chart_url: 
 
 def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
     y = _section_title(c, "Emisión y control", y)
-    left_w = CONTENT_W - 58 * mm
-    box_h = 28 * mm
+    left_w = CONTENT_W - 60 * mm
+    box_h = 23 * mm
     note_parts = [
         "Documento emitido para impresión, revisión y firma por el responsable autorizado.",
-        "La información técnica corresponde a los datos cargados y aprobados en el sistema de gestión.",
+        "La información técnica corresponde a los datos cargados y aprobados en el sistema.",
     ]
     if cert.get("requires_hydraulic_chart"):
-        note_parts.append("El gráfico/carta de prueba hidráulica se identifica como ANEXO A y forma parte del legajo técnico asociado a este certificado.")
+        note_parts.append("El gráfico/carta de prueba hidráulica se identifica como ANEXO A y forma parte del legajo técnico asociado.")
     notes = " ".join(note_parts)
     c.setFillColor(LIGHTER)
     c.roundRect(MARGIN_X, y - box_h, left_w - 5 * mm, box_h, 2 * mm, stroke=0, fill=1)
     p = _p(notes, PS, "")
-    p.wrapOn(c, left_w - 11 * mm, box_h - 7 * mm)
-    p.drawOn(c, MARGIN_X + 3 * mm, y - 13 * mm)
-    _draw_qr_card(c, cert, MARGIN_X + left_w, y - box_h, 58 * mm, box_h)
+    p.wrapOn(c, left_w - 11 * mm, box_h - 5 * mm)
+    p.drawOn(c, MARGIN_X + 3 * mm, y - box_h + 5 * mm)
+    _draw_qr_card(c, cert, MARGIN_X + left_w, y - box_h, 60 * mm, box_h)
     return y - box_h - 5 * mm
 
 
 def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
-    y = _draw_header(c, cert, 2)
+    y = _draw_header(c, cert, 2, 3 if cert.get("requires_hydraulic_chart") else 2)
     tests = detail.get("test_rows", []) or []
     metrology = detail.get("metrology_results", []) or []
     sensor_loop = detail.get("sensor_loop_results", []) or []
@@ -622,21 +633,77 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
     elif template == "pressure_head_sensor":
         y = _draw_sensor_loop_table(c, sensor_loop, y)
     elif template == "relief_valve_set":
+        # For relief valves the specific set/open/reseat/leak table is the governing
+        # technical result. The generic pressure table is intentionally omitted to
+        # avoid duplicating default rows that do not belong to this method.
         y = _draw_relief_section(c, relief, chart_url, y)
-        if y > 87 * mm:
-            y = _draw_simple_pressure_table(c, tests, y)
     elif template == "hydrostatic_line":
+        # For hydrostatic certificates the specific hydrostatic section is sufficient;
+        # pressure chart/carta is referenced as Annex A.
         y = _draw_hydrostatic_section(c, hydro, chart_url, y)
-        if y > 87 * mm:
-            y = _draw_simple_pressure_table(c, tests, y)
     else:
         y = _draw_simple_pressure_table(c, tests, y)
 
-    if y > 73 * mm:
-        y = _draw_text_box(c, "Comentarios finales", cert.get("final_comments"), y, 12 * mm, "Sin comentarios finales.")
+    if y > 122 * mm:
+        y = _draw_text_box(c, "Comentarios finales", cert.get("final_comments"), y, 11 * mm, "Sin comentarios finales.")
 
-    _draw_emission_control(c, cert, max(y, 90 * mm))
-    _draw_signature_area(c, cert, 24 * mm)
+    if cert.get("requires_hydraulic_chart"):
+        # For certificates with Annex A, do not force QR/emission/signatures on page 2.
+        # Keeping those blocks on the annex page prevents the visual overlap seen in dense reports.
+        y = _section_title(c, "Referencia documental", y)
+        rows = [[
+            _p("ANEXO A", PB),
+            _p("El gráfico/carta de prueba hidráulica se identifica como ANEXO A y forma parte del legajo técnico asociado a este certificado.")
+        ]]
+        _table(c, rows, MARGIN_X, y, [34 * mm, CONTENT_W - 34 * mm])
+        _draw_footer(c)
+        return
+
+    # Keep emission/QR and signatures in fixed safe zones so they never overlap.
+    _draw_emission_control(c, cert, 82 * mm)
+    _draw_signature_area(c, cert, 20 * mm)
+    _draw_footer(c)
+
+
+def _draw_annex_a_page(c: canvas.Canvas, cert: dict, detail: dict):
+    y = _draw_header(c, cert, 3, 3)
+    chart_url = cert.get("hydraulic_test_chart_url") or (detail.get("hydraulic_test_chart") or {}).get("file_url")
+    chart_name = cert.get("hydraulic_test_chart_file_name") or (detail.get("hydraulic_test_chart") or {}).get("file_name")
+
+    y = _section_title(c, "ANEXO A - Gráfico / carta de prueba hidráulica", y)
+    rows = [
+        [_p("Certificado", PB), _p(cert.get("certificate_number")), _p("Tipo de anexo", PB), _p("Gráfico/carta de prueba hidráulica")],
+        [_p("Documento asociado", PB), _p(cert.get("document_type")), _p("Estado", PB), _p("Adjunto cargado" if chart_url else "Pendiente de carga")],
+        [_p("Archivo", PB), _p(chart_name or "—"), _p("Cliente", PB), _p(cert.get("client_name") or cert.get("client_name_snapshot"))],
+    ]
+    y -= _table(c, rows, MARGIN_X, y, [34 * mm, 64 * mm, 34 * mm, CONTENT_W - 132 * mm]) + 7 * mm
+
+    y = _draw_text_box(
+        c,
+        "Alcance del anexo",
+        "El gráfico/carta de prueba hidráulica asociado a este certificado se identifica como ANEXO A. "
+        "Este documento constituye evidencia técnica complementaria del ensayo realizado y forma parte del legajo técnico del certificado.",
+        y,
+        22 * mm,
+        "—",
+    )
+
+    y = _section_title(c, "Referencia al ensayo", y)
+    rows = [
+        [_p("Elemento", PB), _p(cert.get("element")), _p("Serie", PB), _p(cert.get("serial_number"))],
+        [_p("Rango", PB), _p(_num_unit(cert.get("range_value"), cert.get("unit"))), _p("Fecha de ensayo", PB), _p(_date(cert.get("calibration_date")))],
+        [_p("Medio de prueba", PB), _p(cert.get("test_medium")), _p("Temperatura", PB), _p(cert.get("ambient_temperature"))],
+    ]
+    y -= _table(c, rows, MARGIN_X, y, [34 * mm, 64 * mm, 34 * mm, CONTENT_W - 132 * mm]) + 8 * mm
+
+    if chart_url:
+        y = _draw_text_box(c, "Archivo adjunto", f"El anexo se encuentra disponible como archivo técnico asociado al certificado: {chart_url}", y, 19 * mm, "—")
+    else:
+        y = _draw_text_box(c, "Archivo adjunto", "El gráfico/carta de prueba hidráulica todavía no fue cargado. El certificado no debería aprobarse sin este adjunto cuando la plantilla lo requiere.", y, 19 * mm, "—")
+
+    # Page 3 is intentionally reserved for annex control, QR and signatures.
+    _draw_emission_control(c, cert, 88 * mm)
+    _draw_signature_area(c, cert, 22 * mm)
     _draw_footer(c)
 
 
@@ -658,6 +725,9 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     _draw_page_1(c, cert, patterns)
     c.showPage()
     _draw_page_2(c, cert, detail)
+    if cert.get("requires_hydraulic_chart"):
+        c.showPage()
+        _draw_annex_a_page(c, cert, detail)
     c.save()
 
     execute("update certificates set pdf_url=%s where id=%s returning id", [public_url, cert_id])

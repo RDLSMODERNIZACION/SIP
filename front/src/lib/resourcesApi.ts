@@ -1,79 +1,100 @@
 import { apiFetch } from "./api";
-import type { Client, Equipment, Pattern, User, CertificateSummary } from "@/src/types";
+import type { Client, Equipment, Pattern } from "@/src/types";
 
-function cleanPayload<T>(value: T): T {
-  if (Array.isArray(value)) return value.map((item) => cleanPayload(item)) as T;
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .map(([k, v]) => [k, v === "" ? undefined : cleanPayload(v)])
-        .filter(([, v]) => v !== undefined)
-    ) as T;
-  }
-  return value;
+export type ClientPayload = Partial<Client> & {
+  name?: string;
+  legal_name?: string | null;
+  cuit?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  province?: string | null;
+  country?: string | null;
+  notes?: string | null;
+  active?: boolean;
+};
+
+export type EquipmentPayload = Partial<Equipment> & {
+  client_id: string;
+  name: string;
+  element?: string | null;
+  type_model?: string | null;
+  brand?: string | null;
+  serial_number?: string | null;
+  range_value?: string | null;
+  unit?: string | null;
+  size_value?: string | null;
+  internal_code?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  active?: boolean;
+};
+
+export async function getClients() {
+  return apiFetch<Client[]>("/clients");
 }
 
-export async function getClients(q?: string) {
-  const query = q ? `?q=${encodeURIComponent(q)}` : "";
-  return apiFetch<Client[]>(`/clients${query}`);
+export async function createClient(payload: ClientPayload) {
+  return apiFetch<Client>("/clients", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
-export async function createClient(payload: Partial<Client>) {
-  return apiFetch<Client>("/clients", { method: "POST", body: JSON.stringify(cleanPayload(payload)) });
+export async function updateClient(clientId: string, payload: ClientPayload) {
+  return apiFetch<Client>(`/clients/${clientId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 }
 
-export async function getClientSummary(clientId: string) {
-  return apiFetch<CertificateSummary>(`/clients/${clientId}/summary`);
+export async function deactivateClient(clientId: string) {
+  return updateClient(clientId, { active: false });
 }
 
-export async function updateClient(id: string, payload: Partial<Client>) {
-  return apiFetch<Client>(`/clients/${id}`, { method: "PATCH", body: JSON.stringify(cleanPayload(payload)) });
+export async function activateClient(clientId: string) {
+  return updateClient(clientId, { active: true });
 }
 
-export async function deleteClient(id: string, hard = false) {
-  const query = hard ? "?hard=true" : "";
-  return apiFetch<{ ok: boolean }>(`/clients/${id}${query}`, { method: "DELETE" });
+export async function deleteClient(clientId: string, hard = true) {
+  return apiFetch<{ ok: boolean }>(`/clients/${clientId}?hard=${hard ? "true" : "false"}`, {
+    method: "DELETE",
+  });
 }
 
-export async function getEquipment(params?: { client_id?: string; q?: string }) {
-  const search = new URLSearchParams();
-  if (params?.client_id) search.set("client_id", params.client_id);
-  if (params?.q) search.set("q", params.q);
-  const query = search.toString() ? `?${search.toString()}` : "";
-  return apiFetch<Equipment[]>(`/equipment${query}`);
+export async function getEquipment() {
+  return apiFetch<Equipment[]>("/equipment");
 }
 
-export async function createEquipment(payload: Partial<Equipment>) {
-  return apiFetch<Equipment>("/equipment", { method: "POST", body: JSON.stringify(cleanPayload(payload)) });
+export async function createEquipment(payload: EquipmentPayload) {
+  return apiFetch<Equipment>("/equipment", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
-export async function updateEquipment(id: string, payload: Partial<Equipment>) {
-  return apiFetch<Equipment>(`/equipment/${id}`, { method: "PATCH", body: JSON.stringify(cleanPayload(payload)) });
+export async function updateEquipment(equipmentId: string, payload: Partial<EquipmentPayload>) {
+  return apiFetch<Equipment>(`/equipment/${equipmentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 }
 
-export async function getPatterns(params?: { q?: string; status?: string }) {
-  const search = new URLSearchParams();
-  if (params?.q) search.set("q", params.q);
-  if (params?.status) search.set("status", params.status);
-  const query = search.toString() ? `?${search.toString()}` : "";
-  return apiFetch<Pattern[]>(`/patterns${query}`);
+export async function getPatterns() {
+  return apiFetch<Pattern[]>("/patterns");
 }
 
 export async function createPattern(payload: Partial<Pattern>) {
-  return apiFetch<Pattern>("/patterns", { method: "POST", body: JSON.stringify(cleanPayload(payload)) });
+  return apiFetch<Pattern>("/patterns", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
-export async function getUsers() {
-  return apiFetch<User[]>("/users");
-}
-
-export async function createUser(payload: {
-  email: string;
-  full_name: string;
-  phone?: string;
-  role_code: string;
-  client_id?: string | null;
-  password: string;
-}) {
-  return apiFetch<User>("/users", { method: "POST", body: JSON.stringify(cleanPayload(payload)) });
+export async function updatePattern(patternId: string, payload: Partial<Pattern>) {
+  return apiFetch<Pattern>(`/patterns/${patternId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 }

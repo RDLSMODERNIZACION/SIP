@@ -104,7 +104,12 @@ def apply_client_requirements(data: dict):
     template_type = data.get("template_type") or "general_pressure"
 
     data["md_required"] = is_md_client(client_id)
-    data["requires_hydraulic_chart"] = template_requires_hydraulic_chart(template_type)
+    # El gráfico/carta hidráulica se fuerza para plantillas técnicas específicas.
+    # En ensayo general se permite que el usuario lo marque manualmente para emitir ANEXO A.
+    if template_type == "general_pressure":
+        data["requires_hydraulic_chart"] = bool(data.get("requires_hydraulic_chart"))
+    else:
+        data["requires_hydraulic_chart"] = template_requires_hydraulic_chart(template_type)
 
     req = get_client_template_requirement(client_id, template_type)
     if req:
@@ -266,27 +271,7 @@ def certificate_detail(cert_id: str, user=None):
     if user:
         can_view_certificate(user, cert)
     rows = fetch_all("select * from certificate_test_rows where certificate_id=%s order by row_order", [cert_id])
-    patterns = fetch_all(
-        """
-        select
-            cpu.*,
-            coalesce(mp.name, cpu.pattern_name) as pattern_name,
-            coalesce(mp.serial_number, cpu.pattern_serial_number) as pattern_serial_number,
-            coalesce(mp.certificate_number, cpu.pattern_certificate_number) as pattern_certificate_number,
-            coalesce(mp.range_value, cpu.pattern_range_value) as pattern_range_value,
-            coalesce(mp.unit, cpu.pattern_unit) as pattern_unit,
-            coalesce(mp.calibration_date, cpu.pattern_calibration_date) as pattern_calibration_date,
-            coalesce(mp.recalibration_date, cpu.pattern_recalibration_date) as pattern_recalibration_date,
-            coalesce(mp.certificate_url, cpu.pattern_certificate_url) as pattern_certificate_url,
-            mp.certificate_file_name as pattern_certificate_file_name,
-            mp.certificate_uploaded_at as pattern_certificate_uploaded_at
-        from certificate_pattern_usage cpu
-        left join measurement_patterns mp on mp.id = cpu.pattern_id
-        where cpu.certificate_id=%s
-        order by cpu.created_at
-        """,
-        [cert_id],
-    )
+    patterns = fetch_all("select * from certificate_pattern_usage where certificate_id=%s order by created_at", [cert_id])
     comments = fetch_all(
         """
         select cc.*, u.full_name as user_name

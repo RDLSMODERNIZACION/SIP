@@ -176,3 +176,9 @@ export async function deactivateUser(userId: string) {
 export async function activateUser(userId: string) {
   return updateUser(userId, { status: "active" });
 }
+
+export async function deleteUser(userId: string, hard = true) {
+  return apiFetch<{ ok: boolean }>(`/users/${userId}?hard=${hard ? "true" : "false"}`, {
+    method: "DELETE",
+  });
+}

@@ -16,11 +16,11 @@ export type CatalogItem = {
   id: string;
   name?: string | null;
   code?: string | null;
-  active?: boolean | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  active?: boolean;
+  created_at?: string;
+  updated_at?: string;
 
-  // element-models
+  // Modelos por elemento
   element_id?: string | null;
   element_name?: string | null;
   part_1?: string | null;
@@ -28,39 +28,65 @@ export type CatalogItem = {
   part_3?: string | null;
   full_name?: string | null;
 
-  // frequencies / pressure rows
+  // Frecuencias / filas
   months?: number | null;
   row_order?: number | null;
 
   [key: string]: unknown;
 };
 
-function queryString(params?: Record<string, string | number | boolean | null | undefined>) {
-  if (!params) return "";
+export type CatalogDefinition = {
+  code: CatalogCode;
+  label: string;
+  fields: string[];
+};
+
+export type CatalogListParams = {
+  active?: boolean;
+  q?: string;
+};
+
+export const CATALOG_DEFINITIONS: CatalogDefinition[] = [
+  { code: "units", label: "Unidades", fields: ["name", "active"] },
+  { code: "test-types", label: "Tipos de prueba", fields: ["name", "active"] },
+  { code: "elements", label: "Elementos", fields: ["name", "active"] },
+  {
+    code: "element-models",
+    label: "Modelos",
+    fields: ["element_name", "part_1", "part_2", "part_3", "full_name", "active"],
+  },
+  { code: "sizes", label: "Sizes", fields: ["name", "active"] },
+  { code: "brands", label: "Marcas", fields: ["name", "active"] },
+  { code: "serial-numbers", label: "Series", fields: ["name", "active"] },
+  { code: "ranges", label: "Rangos", fields: ["name", "active"] },
+  { code: "frequencies", label: "Frecuencias", fields: ["name", "months", "active"] },
+  { code: "pressure-rows", label: "Filas de presión", fields: ["name", "row_order", "active"] },
+];
+
+export function getCatalogDefinitions(): CatalogDefinition[] {
+  return CATALOG_DEFINITIONS;
+}
+
+function buildQuery(params?: CatalogListParams) {
   const search = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === "") return;
-    search.set(key, String(value));
-  });
-  const qs = search.toString();
-  return qs ? `?${qs}` : "";
+
+  if (params?.active !== undefined) {
+    search.set("active", String(params.active));
+  }
+
+  if (params?.q) {
+    search.set("q", params.q);
+  }
+
+  const query = search.toString();
+  return query ? `?${query}` : "";
 }
 
 export async function getCatalogItems(
   catalog: CatalogCode,
-  params?: { active?: boolean; q?: string }
+  params?: CatalogListParams
 ): Promise<CatalogItem[]> {
-  return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${queryString(params)}`);
-}
-
-export async function ensureCatalogItem(
-  catalog: CatalogCode,
-  payload: Record<string, unknown>
-): Promise<CatalogItem> {
-  return apiFetch<CatalogItem>(`/catalogs/${catalog}/ensure`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${buildQuery(params)}`);
 }
 
 export async function createCatalogItem(
@@ -73,12 +99,22 @@ export async function createCatalogItem(
   });
 }
 
-export async function updateCatalogItem(
+export async function ensureCatalogItem(
   catalog: CatalogCode,
-  id: string,
   payload: Record<string, unknown>
 ): Promise<CatalogItem> {
-  return apiFetch<CatalogItem>(`/catalogs/${catalog}/${id}`, {
+  return apiFetch<CatalogItem>(`/catalogs/${catalog}/ensure`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCatalogItem(
+  catalog: CatalogCode,
+  itemId: string,
+  payload: Record<string, unknown>
+): Promise<CatalogItem> {
+  return apiFetch<CatalogItem>(`/catalogs/${catalog}/${itemId}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
@@ -86,11 +122,11 @@ export async function updateCatalogItem(
 
 export async function deleteCatalogItem(
   catalog: CatalogCode,
-  id: string,
+  itemId: string,
   hard = false
-): Promise<{ ok: boolean; deleted?: boolean; deactivated?: boolean }> {
-  return apiFetch<{ ok: boolean; deleted?: boolean; deactivated?: boolean }>(
-    `/catalogs/${catalog}/${id}${queryString({ hard })}`,
+): Promise<{ ok: boolean; deleted_id?: string; deactivated_id?: string }> {
+  return apiFetch<{ ok: boolean; deleted_id?: string; deactivated_id?: string }>(
+    `/catalogs/${catalog}/${itemId}?hard=${hard ? "true" : "false"}`,
     { method: "DELETE" }
   );
 }

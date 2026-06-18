@@ -1,4 +1,5 @@
-import { apiFetch, publicFetch } from "./api";
+import { apiFetch, publicFetch, getToken } from "./api";
+import { API_BASE_URL } from "./config";
 import type { Certificate, CertificateDetail, PublicCertificateValidation } from "@/src/types";
 
 function cleanPayload<T>(value: T): T {
@@ -11,6 +12,38 @@ function cleanPayload<T>(value: T): T {
     ) as T;
   }
   return value;
+}
+
+async function apiFormFetch<T>(path: string, formData: FormData, method = "POST"): Promise<T> {
+  const token = getToken();
+  const headers: HeadersInit = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers,
+    body: formData,
+    cache: "no-store",
+  });
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("sip_token");
+    window.location.href = "/login";
+  }
+
+  if (!response.ok) {
+    let details = "";
+    try {
+      const json = await response.json();
+      details = typeof json.detail === "string" ? json.detail : JSON.stringify(json);
+    } catch {
+      details = await response.text();
+    }
+    throw new Error(details || `Error ${response.status}`);
+  }
+
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
 }
 
 export type CertificateCreatePayload = {
@@ -52,6 +85,22 @@ export type CertificateCreatePayload = {
     observations?: string | null;
   }>;
   pattern_usages?: Array<{ pattern_id: string }>;
+};
+
+export type HydraulicTestChartResponse = {
+  hydraulic_test_chart?: {
+    id: string;
+    certificate_id: string;
+    file_type: string;
+    file_name?: string | null;
+    file_url: string;
+    storage_path?: string | null;
+    uploaded_by?: string | null;
+    created_at?: string;
+  } | null;
+  file_url?: string;
+  ok?: boolean;
+  deleted?: boolean;
 };
 
 export async function getCertificates(params?: { status?: string; client_id?: string; q?: string }) {
@@ -129,6 +178,20 @@ export async function generateQr(id: string) {
 
 export async function generatePdf(id: string) {
   return apiFetch<{ pdf_url: string }>(`/certificates/${id}/generate-pdf`, { method: "POST" });
+}
+
+export async function getHydraulicTestChart(id: string) {
+  return apiFetch<HydraulicTestChartResponse>(`/certificates/${id}/hydraulic-test-chart`);
+}
+
+export async function uploadHydraulicTestChart(id: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFormFetch<HydraulicTestChartResponse>(`/certificates/${id}/hydraulic-test-chart`, formData, "POST");
+}
+
+export async function deleteHydraulicTestChart(id: string) {
+  return apiFetch<HydraulicTestChartResponse>(`/certificates/${id}/hydraulic-test-chart`, { method: "DELETE" });
 }
 
 export async function validateCertificate(hash: string) {

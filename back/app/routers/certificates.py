@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from ..auth import get_current_user, require_roles
 from ..models import CertificateCreate, CertificateUpdate, RejectRequest, AnnulRequest, CommentCreate
 from ..db import execute
@@ -13,6 +13,9 @@ from ..services.certificate_service import (
     reject_certificate,
     annul_certificate,
     get_next_certificate_number,
+    get_hydraulic_test_chart,
+    upload_hydraulic_test_chart,
+    delete_hydraulic_test_chart,
 )
 from ..services.qr_service import generate_qr
 from ..services.pdf_service import generate_certificate_pdf
@@ -83,6 +86,25 @@ def pdf(cert_id: str, user=Depends(require_roles("admin", "aprobador"))):
     generate_qr(cert_id, user)
     url = generate_certificate_pdf(cert_id, user)
     return {"pdf_url": url}
+
+
+@router.get("/{cert_id}/hydraulic-test-chart")
+def get_chart(cert_id: str, user=Depends(get_current_user)):
+    return get_hydraulic_test_chart(cert_id, user)
+
+
+@router.post("/{cert_id}/hydraulic-test-chart")
+def upload_chart(
+    cert_id: str,
+    file: UploadFile = File(...),
+    user=Depends(require_roles("admin", "aprobador")),
+):
+    return upload_hydraulic_test_chart(cert_id, file, user)
+
+
+@router.delete("/{cert_id}/hydraulic-test-chart")
+def delete_chart(cert_id: str, user=Depends(require_roles("admin", "aprobador"))):
+    return delete_hydraulic_test_chart(cert_id, user)
 
 
 @router.post("/{cert_id}/comments")

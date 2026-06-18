@@ -1,5 +1,7 @@
 from uuid import UUID
-from fastapi import HTTPException
+from pathlib import Path
+import re
+from fastapi import HTTPException, UploadFile
 from ..db import fetch_one, fetch_all, execute, get_conn
 from ..config import settings
 
@@ -123,8 +125,16 @@ def certificate_detail(cert_id: str, user=None):
         [cert_id],
     )
     files = fetch_all("select * from certificate_files where certificate_id=%s order by created_at desc", [cert_id])
-    return {"certificate": cert, "test_rows": rows, "patterns": patterns, "comments": comments, "audit": audit, "files": files}
-
+    hydraulic_chart = next((f for f in files if f.get("file_type") == "hydraulic_test_chart"), None)
+    return {
+        "certificate": cert,
+        "test_rows": rows,
+        "patterns": patterns,
+        "comments": comments,
+        "audit": audit,
+        "files": files,
+        "hydraulic_test_chart": hydraulic_chart,
+    }
 
 def snapshot_client_and_equipment(client_id, equipment_id):
     client = fetch_one("select * from clients where id=%s", [client_id])
@@ -334,3 +344,131 @@ def delete_certificate(cert_id: str, user, hard: bool = True):
         raise HTTPException(status_code=404, detail="Certificado no encontrado")
 
     return {"ok": True, "deleted_id": cert_id}
+
+
+# =========================================================
+# Adjuntos técnicos: gráfico prueba hidráulica
+# =========================================================
+
+HYDRAULIC_CHART_TYPE = "hydraulic_test_chart"
+STATIC_ROOT = Path("app/static")
+HYDRAULIC_CHART_DIR = STATIC_ROOT / "hydraulic-charts"
+HYDRAULIC_CHART_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_file_stem(value: str) -> str:
+    value = (value or "certificado").strip().replace(" ", "_")
+    value = re.sub(r"[^A-Za-z0-9_\-]+", "_", value)
+    value = re.sub(r"_+", "_", value).strip("_")
+    return value or "certificado"
+
+
+def _public_static_url(relative_path: str) -> str:
+    base = str(settings.PUBLIC_BASE_URL or "").rstrip("/")
+    rel = relative_path if relative_path.startswith("/") else f"/{relative_path}"
+    return f"{base}{rel}"
+
+
+def _get_hydraulic_chart_row(cert_id: str):
+    return fetch_one(
+        """
+        select *
+        from certificate_files
+        where certificate_id=%s and file_type=%s
+        order by created_at desc
+        limit 1
+        """,
+        [cert_id, HYDRAULIC_CHART_TYPE],
+    )
+
+
+def get_hydraulic_test_chart(cert_id: str, user):
+    cert = get_certificate_or_404(cert_id)
+    can_view_certificate(user, cert)
+    row = _get_hydraulic_chart_row(cert_id)
+    return {"hydraulic_test_chart": row}
+
+
+async def _read_upload_bytes(upload: UploadFile) -> bytes:
+    content = await upload.read()
+    await upload.close()
+    return content
+
+
+def upload_hydraulic_test_chart(cert_id: str, file: UploadFile, user):
+    cert = get_certificate_or_404(cert_id)
+    can_view_certificate(user, cert)
+
+    filename = file.filename or "grafico_prueba_hidraulica.pdf"
+    content_type = (file.content_type or "").lower()
+    if not filename.lower().endswith(".pdf") and content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="El gráfico de prueba hidráulica debe ser un archivo PDF")
+
+    # UploadFile.read() es async. Como este servicio es sync, accedemos al file object directamente.
+    file.file.seek(0)
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="El archivo PDF está vacío")
+
+    safe_cert = _safe_file_stem(cert.get("certificate_number") or cert_id)
+    output_name = f"{safe_cert}_grafico_prueba_hidraulica.pdf"
+    output_path = HYDRAULIC_CHART_DIR / output_name
+    output_path.write_bytes(content)
+
+    relative_url = f"/static/hydraulic-charts/{output_name}"
+    public_url = _public_static_url(relative_url)
+
+    old = _get_hydraulic_chart_row(cert_id)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Dejamos un solo adjunto activo de este tipo por certificado.
+            cur.execute(
+                "delete from certificate_files where certificate_id=%s and file_type=%s",
+                [cert_id, HYDRAULIC_CHART_TYPE],
+            )
+            cur.execute(
+                """
+                insert into certificate_files
+                (certificate_id, file_type, file_name, file_url, storage_path, uploaded_by)
+                values (%s,%s,%s,%s,%s,%s)
+                returning *
+                """,
+                [cert_id, HYDRAULIC_CHART_TYPE, filename, public_url, str(output_path), user["id"]],
+            )
+            row = cur.fetchone()
+            cur.execute(
+                "select add_certificate_audit(%s,%s,'updated',%s,null,null)",
+                [
+                    cert_id,
+                    user["id"],
+                    "Gráfico prueba hidráulica reemplazado." if old else "Gráfico prueba hidráulica subido.",
+                ],
+            )
+
+    return {"ok": True, "hydraulic_test_chart": row, "file_url": public_url}
+
+
+def delete_hydraulic_test_chart(cert_id: str, user):
+    cert = get_certificate_or_404(cert_id)
+    can_view_certificate(user, cert)
+    old = _get_hydraulic_chart_row(cert_id)
+    if not old:
+        return {"ok": True, "deleted": False}
+
+    storage_path = old.get("storage_path")
+    if storage_path:
+        try:
+            Path(storage_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    execute(
+        "delete from certificate_files where certificate_id=%s and file_type=%s",
+        [cert_id, HYDRAULIC_CHART_TYPE],
+    )
+    execute(
+        "select add_certificate_audit(%s,%s,'updated',%s,null,null)",
+        [cert_id, user["id"], "Gráfico prueba hidráulica eliminado."],
+    )
+    return {"ok": True, "deleted": True}

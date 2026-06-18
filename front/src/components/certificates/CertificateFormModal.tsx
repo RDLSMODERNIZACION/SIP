@@ -541,15 +541,19 @@ export function CertificateFormModal({
     return name === "MD" || name === "MD SRL" || name === "MD S.R.L." || client?.cuit === "30710046898";
   }
 
-  function templateRequiresHydraulicChart(templateCode: string) {
+  function templateForcesHydraulicChart(templateCode: string) {
     const template = templates.find((item) => item.code === templateCode);
     return Boolean(template?.requires_hydraulic_chart || ["relief_valve_set", "hydrostatic_line"].includes(templateCode));
   }
 
-  function getAutomaticRequirementInfo(clientId = form.client_id, templateCode = String(form.template_type || "general_pressure")) {
-    const md = isMdClient(clientId);
-    const chartRequired = templateRequiresHydraulicChart(templateCode);
-    return { md, chartRequired };
+  function effectiveRequiresHydraulicChart(templateCode = String(form.template_type || "general_pressure"), manualValue = Boolean(form.requires_hydraulic_chart)) {
+    return templateForcesHydraulicChart(templateCode) || manualValue;
+  }
+
+  function getAutomaticRequirementInfo(templateCode = String(form.template_type || "general_pressure")) {
+    const chartForced = templateForcesHydraulicChart(templateCode);
+    const chartRequired = effectiveRequiresHydraulicChart(templateCode);
+    return { chartForced, chartRequired };
   }
 
   function buildAutomaticRequirementPatch(clientId = form.client_id, templateCode = String(form.template_type || "general_pressure")) {
@@ -561,7 +565,7 @@ export function CertificateFormModal({
 
     return {
       md_required: md,
-      requires_hydraulic_chart: templateRequiresHydraulicChart(templateCode),
+      requires_hydraulic_chart: templateForcesHydraulicChart(templateCode) || (templateCode === "general_pressure" ? Boolean(form.requires_hydraulic_chart) : false),
       test_frequency_months: frequency,
       expiration_date: addMonthsIso(form.calibration_date || todayIso(), frequency),
     };
@@ -719,7 +723,7 @@ export function CertificateFormModal({
         document_type: normalizeText(form.document_type) || "Certificado de Calibración",
         template_type: normalizeText(form.template_type) || "general_pressure",
         md_required: isMdClient(form.client_id),
-        requires_hydraulic_chart: templateRequiresHydraulicChart(String(form.template_type || "general_pressure")),
+        requires_hydraulic_chart: effectiveRequiresHydraulicChart(String(form.template_type || "general_pressure"), Boolean(form.requires_hydraulic_chart)),
         responsible_name: normalizeText(form.responsible_name),
         responsible_license: normalizeText(form.responsible_license),
         asset_unit_code: normalizeText(form.asset_unit_code),
@@ -813,7 +817,7 @@ export function CertificateFormModal({
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="mb-4">
             <h3 className="text-sm font-bold text-slate-900">Tipo de documento y plantilla técnica</h3>
-            <p className="text-xs text-slate-500">Esto ajusta el método, la frecuencia y las tablas requeridas según el tipo de elemento solicitado por MD.</p>
+            <p className="text-xs text-slate-500">Esto ajusta el método, la frecuencia y las tablas requeridas según el tipo de elemento certificado.</p>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="Plantilla técnica">
@@ -827,12 +831,23 @@ export function CertificateFormModal({
             <Field label="Nombre del documento">
               <input className={inputClass} value={form.document_type || ""} onChange={(e) => update("document_type", e.target.value)} />
             </Field>
+            <Field label="Gráfico / carta hidráulica">
+              <label className={`flex h-11 items-center gap-2 rounded-xl border border-slate-200 px-3 text-sm ${templateForcesHydraulicChart(String(form.template_type || "general_pressure")) ? "bg-slate-100 text-slate-500" : "bg-white"}`}>
+                <input
+                  type="checkbox"
+                  checked={effectiveRequiresHydraulicChart()}
+                  disabled={templateForcesHydraulicChart(String(form.template_type || "general_pressure"))}
+                  onChange={(e) => update("requires_hydraulic_chart", e.target.checked)}
+                />
+                <span>{templateForcesHydraulicChart(String(form.template_type || "general_pressure")) ? "Obligatorio por plantilla" : "Requerir Anexo A"}</span>
+              </label>
+            </Field>
           </div>
           {(() => {
             const info = getAutomaticRequirementInfo();
             const messages: string[] = [];
-            if (info.md) messages.push("Requisitos MD aplicados automáticamente: frecuencia 12 meses y validaciones técnicas obligatorias.");
-            if (info.chartRequired) messages.push("Esta plantilla requiere gráfico/carta de prueba hidráulica antes de aprobar.");
+            if (info.chartForced) messages.push("Esta plantilla requiere gráfico/carta de prueba hidráulica antes de aprobar.");
+            if (!info.chartForced && info.chartRequired) messages.push("Este certificado se emitirá con ANEXO A: gráfico/carta de prueba hidráulica como adjunto técnico obligatorio.");
             if (form.template_type && TEMPLATE_HELP[String(form.template_type)]) messages.push(TEMPLATE_HELP[String(form.template_type)]);
             return messages.length > 0 ? (
               <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">

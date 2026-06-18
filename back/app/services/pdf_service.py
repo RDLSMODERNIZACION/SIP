@@ -445,8 +445,7 @@ def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
     y = _section_title(c, "Datos del cliente y documento", y)
     rows = [
         [_p("Cliente", PB), _p(cert.get("client_name") or cert.get("client_name_snapshot")), _p("CUIT", PB), _p(cert.get("client_cuit") or cert.get("client_cuit_snapshot"))],
-        [_p("Orden de compra", PB), _p(cert.get("purchase_order")), _p("Estado administrativo", PB), _p("Pagado" if cert.get("is_paid") else "Pendiente")],
-        [_p("Tipo de documento", PB), _p(cert.get("document_type")), _p("Plantilla técnica", PB), _p(_template_label(cert.get("template_type")))],
+        [_p("Orden de compra", PB), _p(cert.get("purchase_order")), _p("Tipo de documento", PB), _p(cert.get("document_type"))],
     ]
     y -= _table(c, rows, MARGIN_X, y, [34 * mm, 67 * mm, 34 * mm, CONTENT_W - 135 * mm]) + 5.5 * mm
 

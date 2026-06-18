@@ -91,15 +91,6 @@ def _p(value: Any, style: ParagraphStyle = P, default: str = "—") -> Paragraph
     return Paragraph(_esc(_display(value, default)), style)
 
 
-def _link_p(label: Any, url: Any, style: ParagraphStyle = PS, default: str = "—") -> Paragraph:
-    clean_url = _v(url).strip()
-    clean_label = _display(label, default)
-    if not clean_url:
-        return _p(clean_label, style, default)
-    safe_url = clean_url.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
-    return Paragraph(f'<link href="{safe_url}"><u>{_esc(clean_label)}</u></link>', style)
-
-
 def _stroke(c: canvas.Canvas, color=LINE, width: float = 0.45):
     c.setStrokeColor(color)
     c.setLineWidth(width)
@@ -403,11 +394,10 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
     c.setFont("Helvetica-Bold", 6.4)
     c.drawString(x + 3 * mm, y + h - 5.2 * mm, "VALIDACIÓN DE AUTENTICIDAD")
 
-    # QR más grande y alineado dentro de la tarjeta. En versiones previas quedaba
-    # demasiado chico porque el alto de la tarjeta era bajo.
-    qr_size = min(27 * mm, h - 12 * mm, w * 0.42)
+    # QR grande y centrado dentro de la tarjeta.
+    qr_size = min(29 * mm, h - 11 * mm, w * 0.44)
     qr_x = x + 4 * mm
-    qr_y = y + 4 * mm
+    qr_y = y + max(4 * mm, (h - 8 * mm - qr_size) / 2)
     try:
         c.drawImage(_qr_image_reader(cert), qr_x, qr_y, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
     except Exception:
@@ -421,11 +411,11 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
     c.drawString(tx, y + h - 14 * mm, "Documento")
     c.setFillColor(NAVY)
     c.setFont("Helvetica-Bold", 6.4)
-    c.drawString(tx, y + h - 18.2 * mm, _display(cert.get("certificate_number")))
+    c.drawString(tx, y + h - 18.5 * mm, _display(cert.get("certificate_number")))
     c.setFillColor(MUTED)
     c.setFont("Helvetica", 5.4)
-    c.drawString(tx, y + 8.4 * mm, "Escanear para verificar")
-    c.drawString(tx, y + 5.2 * mm, "autenticidad")
+    c.drawString(tx, y + 12.2 * mm, "Escanear para verificar")
+    c.drawString(tx, y + 9.0 * mm, "autenticidad")
     c.restoreState()
 
 
@@ -443,55 +433,65 @@ def _has_pattern_data(p: dict) -> bool:
     return any(_v(p.get(k)).strip() for k in keys)
 
 
+def _pattern_url(p: dict) -> str:
+    for key in ["pattern_certificate_url", "certificate_url", "file_url"]:
+        value = _v(p.get(key)).strip()
+        if value:
+            return value if value.startswith("http") else f"{settings.PUBLIC_BASE_URL}{value}"
+    return ""
+
+
+def _draw_link_row(c: canvas.Canvas, label: str, text: str, url: str, y: float) -> float:
+    """Compact two-column link row used below pattern tables."""
+    row_h = 6.8 * mm
+    x = MARGIN_X
+    label_w = 48 * mm
+    c.saveState()
+    _stroke(c, LINE, 0.35)
+    c.setFillColor(WHITE)
+    c.rect(x, y - row_h, CONTENT_W, row_h, stroke=1, fill=1)
+    c.setFillColor(LIGHTER)
+    c.rect(x, y - row_h, label_w, row_h, stroke=0, fill=1)
+    c.setFillColor(SLATE)
+    c.setFont("Helvetica-Bold", 6.2)
+    c.drawString(x + 3 * mm, y - 4.4 * mm, label.upper())
+    c.setFillColor(NAVY)
+    c.setFont("Helvetica-Bold", 6.2)
+    text_x = x + label_w + 3 * mm
+    text_y = y - 4.4 * mm
+    c.drawString(text_x, text_y, text)
+    if url:
+        # Link only over the visible label, not over the whole row.
+        c.linkURL(url, (text_x, y - row_h + 1.5 * mm, text_x + 42 * mm, y - 1.2 * mm), relative=0)
+    c.restoreState()
+    return y - row_h
+
+
 def _draw_patterns(c: canvas.Canvas, patterns: list[dict], y: float) -> float:
     real_patterns = [p for p in patterns if _has_pattern_data(p)]
     y = _section_title(c, "Datos equipos patrón aplicado", y)
-
     if not real_patterns:
         rows = [[_p("Equipo patrón", PB), _p("Sin equipo patrón declarado"), _p("Estado", PB), _p("—")]]
         y -= _table(c, rows, MARGIN_X, y, [38 * mm, 68 * mm, 25 * mm, CONTENT_W - 131 * mm]) + 6 * mm
         return y
 
-    table_rows = [[
-        _p("Patrón", PSB),
-        _p("Certificado", PSB),
-        _p("Rango", PSB),
-        _p("Fecha de calibración", PSB),
-        _p("Fecha de recalibración", PSB),
-    ]]
-
+    table_rows = [[_p("Patrón", PSB), _p("Certificado", PSB), _p("Rango", PSB), _p("Fecha de calibración", PSB), _p("Fecha de recalibración", PSB)]]
     for p in real_patterns[:5]:
-        base_name = _v(p.get("pattern_name")).strip()
-        serial = _v(p.get("pattern_serial_number")).strip()
-        pattern_name = f"{base_name} SERIE {serial}" if serial and serial not in base_name else base_name
+        pattern_name = " ".join(filter(None, [_v(p.get("pattern_name")), _v(p.get("pattern_serial_number"))])).strip()
         table_rows.append([
-            _p(pattern_name.upper(), PS),
+            _p(pattern_name, PS),
             _p(p.get("pattern_certificate_number"), PS),
             _p(_num_unit(p.get("pattern_range_value"), p.get("pattern_unit")), PS),
             _p(_date(p.get("pattern_calibration_date")), PS),
             _p(_date(p.get("pattern_recalibration_date")), PS),
         ])
-
     th = _table(c, table_rows, MARGIN_X, y, [43 * mm, 42 * mm, 32 * mm, 35 * mm, CONTENT_W - 152 * mm], header=True)
-    y = y - th - 1.2 * mm
+    y = y - th
 
-    # Fila de trazabilidad del certificado patrón. Se muestra un texto limpio,
-    # con link embebido, en vez de imprimir URLs largas o enlaces de Drive.
-    link_rows = []
-    for p in real_patterns[:3]:
-        url = _v(p.get("pattern_certificate_url")).strip()
-        label = "Ver certificado patrón" if url else "Certificado patrón no cargado en servidor"
-        link_rows.append([
-            _p("CERTIFICADO PATRÓN APLICADO", PB),
-            _link_p(label, url, PS, label),
-        ])
-
-    if link_rows:
-        y -= _table(c, link_rows, MARGIN_X, y, [55 * mm, CONTENT_W - 55 * mm]) + 6 * mm
-    else:
-        y -= 6 * mm
-
-    return y
+    first_url = next((_pattern_url(p) for p in real_patterns if _pattern_url(p)), "")
+    if first_url:
+        y = _draw_link_row(c, "Certificado patrón aplicado", "Ver certificado patrón", first_url, y)
+    return y - 7 * mm
 
 
 def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
@@ -531,9 +531,11 @@ def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
 
     y = _draw_text_box(c, "Conclusiones", cert.get("conclusions"), y, 14 * mm, "Sin conclusiones declaradas.")
 
-    y = _draw_patterns(c, patterns, y)
+    if y > 38 * mm:
+        y = _draw_patterns(c, patterns, y)
 
-    _draw_signature_area(c, cert, 24 * mm)
+    # Las firmas se concentran en la última página del documento.
+    # Esto evita superponer la trazabilidad del patrón con los cuadros de firma.
     _draw_footer(c)
 
 
@@ -555,8 +557,8 @@ def _draw_simple_pressure_table(c: canvas.Canvas, tests: list[dict], y: float) -
 
 
 def _draw_metrology_table(c: canvas.Canvas, rows_data: list[dict], y: float) -> float:
-    y = _section_title(c, "Tabla metrológica - Patrón vs instrumento MD", y)
-    rows = [[_p("Punto", PSB), _p("Dir.", PSB), _p("Patrón", PSB), _p("Instrumento MD", PSB), _p("Error", PSB), _p("Error adm.", PSB), _p("Incert.", PSB), _p("Resultado", PSB)]]
+    y = _section_title(c, "Tabla metrológica - Patrón vs instrumento", y)
+    rows = [[_p("Punto", PSB), _p("Dir.", PSB), _p("Patrón", PSB), _p("Instrumento", PSB), _p("Error", PSB), _p("Error adm.", PSB), _p("Incert.", PSB), _p("Resultado", PSB)]]
     for r in rows_data[:10]:
         rows.append([
             _p(r.get("point_label"), PS),
@@ -627,8 +629,8 @@ def _draw_hydrostatic_section(c: canvas.Canvas, result: dict | None, chart_url: 
 
 def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
     y = _section_title(c, "Emisión y control", y)
-    left_w = CONTENT_W - 68 * mm
-    box_h = 31 * mm
+    left_w = CONTENT_W - 73 * mm
+    box_h = 40 * mm
     note_parts = [
         "Documento emitido para impresión, revisión y firma por el responsable autorizado.",
         "La información técnica corresponde a los datos cargados y aprobados en el sistema.",
@@ -639,10 +641,10 @@ def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
     c.setFillColor(LIGHTER)
     c.roundRect(MARGIN_X, y - box_h, left_w - 5 * mm, box_h, 2 * mm, stroke=0, fill=1)
     p = _p(notes, PS, "")
-    p.wrapOn(c, left_w - 11 * mm, box_h - 6 * mm)
-    p.drawOn(c, MARGIN_X + 3 * mm, y - box_h + 6 * mm)
-    _draw_qr_card(c, cert, MARGIN_X + left_w, y - box_h, 68 * mm, box_h)
-    return y - box_h - 6 * mm
+    p.wrapOn(c, left_w - 11 * mm, box_h - 8 * mm)
+    p.drawOn(c, MARGIN_X + 3 * mm, y - box_h + 8 * mm)
+    _draw_qr_card(c, cert, MARGIN_X + left_w, y - box_h, 73 * mm, box_h)
+    return y - box_h - 7 * mm
 
 
 def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
@@ -703,8 +705,9 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
         return
 
     # Keep emission/QR and signatures in fixed safe zones so they never overlap.
-    _draw_emission_control(c, cert, 82 * mm)
-    _draw_signature_area(c, cert, 20 * mm)
+    # Zona final fija: emisión/QR arriba, firmas abajo, con distancia mínima.
+    _draw_emission_control(c, cert, 112 * mm)
+    _draw_signature_area(c, cert, 22 * mm)
     _draw_footer(c)
 
 
@@ -752,7 +755,8 @@ def _draw_annex_a_page(c: canvas.Canvas, cert: dict, detail: dict):
         y = _draw_text_box(c, "Archivo adjunto", "El gráfico/carta de prueba hidráulica todavía no fue cargado. El certificado no debería aprobarse sin este adjunto cuando la plantilla lo requiere.", y, 19 * mm, "—")
 
     # Page 3 is intentionally reserved for annex control, QR and signatures.
-    _draw_emission_control(c, cert, 98 * mm)
+    # Zona final del anexo: QR más grande y separado de las firmas.
+    _draw_emission_control(c, cert, 112 * mm)
     _draw_signature_area(c, cert, 22 * mm)
     _draw_footer(c)
 

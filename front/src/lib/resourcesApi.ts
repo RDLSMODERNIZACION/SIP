@@ -1,4 +1,5 @@
-import { apiFetch } from "./api";
+import { apiFetch, getToken, ApiError } from "./api";
+import { API_BASE_URL } from "./config";
 import type { Client, Equipment, Pattern, User } from "@/src/types";
 
 export type ClientPayload = Partial<Client> & {
@@ -91,8 +92,12 @@ export async function updateEquipment(equipmentId: string, payload: Partial<Equi
   });
 }
 
-export async function getPatterns() {
-  return apiFetch<Pattern[]>("/patterns");
+export async function getPatterns(params?: { q?: string; status?: string }) {
+  const search = new URLSearchParams();
+  if (params?.q) search.set("q", params.q);
+  if (params?.status) search.set("status", params.status);
+  const qs = search.toString();
+  return apiFetch<Pattern[]>(`/patterns${qs ? `?${qs}` : ""}`);
 }
 
 export async function createPattern(payload: Partial<Pattern>) {
@@ -133,4 +138,53 @@ export async function deactivateUser(userId: string) {
 
 export async function activateUser(userId: string) {
   return updateUser(userId, { status: "active" });
+}
+
+
+async function multipartFetch<T>(path: string, formData: FormData): Promise<T> {
+  const token = getToken();
+  const headers: HeadersInit = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    let details = "";
+    try {
+      const json = await response.json();
+      details = typeof json.detail === "string" ? json.detail : JSON.stringify(json);
+    } catch {
+      details = await response.text();
+    }
+    throw new ApiError(response.status, details);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export async function uploadPatternCertificate(patternId: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return multipartFetch<Pattern>(`/patterns/${patternId}/certificate`, formData);
+}
+
+export async function getPatternCertificate(patternId: string) {
+  return apiFetch<{
+    id: string;
+    certificate_url: string;
+    certificate_file_name?: string | null;
+    certificate_storage_path?: string | null;
+    certificate_uploaded_at?: string | null;
+  }>(`/patterns/${patternId}/certificate`);
+}
+
+export async function deletePatternCertificate(patternId: string) {
+  return apiFetch<Pattern>(`/patterns/${patternId}/certificate`, {
+    method: "DELETE",
+  });
 }

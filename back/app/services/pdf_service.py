@@ -130,6 +130,23 @@ def _qr_image_reader(cert: dict):
     return ImageReader(buffer)
 
 
+
+
+def _draw_header_text(c: canvas.Canvas, text: str, x: float, y: float, max_w: float, font_size: float = 14.2):
+    """Draw a one or two-line header title without invading the certificate-number box."""
+    clean = _display(text, "Certificado técnico")
+    style = ParagraphStyle(
+        "HEADER_TITLE_DYNAMIC",
+        parent=PTITLE,
+        fontSize=font_size,
+        leading=font_size + 2,
+        textColor=NAVY,
+        fontName="Helvetica-Bold",
+    )
+    paragraph = Paragraph(_esc(clean), style)
+    _, h = paragraph.wrap(max_w, 13 * mm)
+    paragraph.drawOn(c, x, y - h)
+
 def _draw_logo(c: canvas.Canvas, x: float, y: float, w: float, h: float):
     logo_path = BRANDING_DIR / "sip_logo.png"
     if logo_path.exists():
@@ -195,13 +212,13 @@ def _draw_header(c: canvas.Canvas, cert: dict, page_no: int):
     _draw_logo(c, x, y + 13.4 * mm, 45 * mm, 19 * mm)
 
     title = _document_title(cert, page_no)
-    c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 14.2)
-    c.drawString(x + 55 * mm, y + 24.5 * mm, title)
+    title_x = x + 55 * mm
+    title_max_w = CONTENT_W - 55 * mm - 52 * mm
+    _draw_header_text(c, title, title_x, y + 29.0 * mm, title_max_w, 13.0)
     c.setFont("Helvetica", 7.1)
     c.setFillColor(MUTED)
     subtitle = _template_label(cert.get("template_type"))
-    c.drawString(x + 55 * mm, y + 18.8 * mm, subtitle)
+    c.drawString(title_x, y + 18.8 * mm, subtitle)
 
     box_w = 46 * mm
     box_h = 17 * mm
@@ -386,6 +403,15 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
     c.restoreState()
 
 
+
+
+def _annex_label(chart_url: str | None, required: bool = True) -> str:
+    if chart_url:
+        return "Anexo A - Gráfico/carta de prueba hidráulica disponible como adjunto técnico."
+    if required:
+        return "Anexo A - Gráfico/carta de prueba hidráulica pendiente de carga."
+    return "No aplica."
+
 def _has_pattern_data(p: dict) -> bool:
     keys = ["pattern_name", "pattern_serial_number", "pattern_certificate_number", "pattern_range_value", "pattern_calibration_date", "pattern_recalibration_date"]
     return any(_v(p.get(k)).strip() for k in keys)
@@ -515,7 +541,7 @@ def _draw_sensor_loop_table(c: canvas.Canvas, rows_data: list[dict], y: float) -
     return y - th - 6 * mm
 
 
-def _draw_relief_section(c: canvas.Canvas, result: dict | None, y: float) -> float:
+def _draw_relief_section(c: canvas.Canvas, result: dict | None, chart_url: str | None, y: float) -> float:
     y = _section_title(c, "Ensayo de apertura / seteo de válvula Relief / PRV", y)
     r = result or {}
     rows = [
@@ -524,6 +550,7 @@ def _draw_relief_section(c: canvas.Canvas, result: dict | None, y: float) -> flo
         [_p("Hermeticidad asiento", PB), _p(r.get("leak_test_pressure")), _p("Resultado hermeticidad", PB), _p(r.get("leak_test_result"))],
         [_p("Precinto", PB), _p(r.get("seal_number")), _p("Resultado final", PB), _p(r.get("result"))],
         [_p("Medio / temperatura", PB), _p(" / ".join(filter(None, [_v(r.get("test_medium")).strip(), _v(r.get("ambient_temperature")).strip()]))), _p("Observaciones", PB), _p(r.get("observations"))],
+        [_p("Anexo A", PB), _p(_annex_label(chart_url, True)), _p("Tipo de anexo", PB), _p("Gráfico/carta de prueba hidráulica")],
     ]
     th = _table(c, rows, MARGIN_X, y, [40 * mm, 55 * mm, 40 * mm, CONTENT_W - 135 * mm])
     return y - th - 6 * mm
@@ -532,13 +559,13 @@ def _draw_relief_section(c: canvas.Canvas, result: dict | None, y: float) -> flo
 def _draw_hydrostatic_section(c: canvas.Canvas, result: dict | None, chart_url: str | None, y: float) -> float:
     y = _section_title(c, "Ensayo hidrostático de resistencia y estanqueidad", y)
     r = result or {}
-    chart_text = "Adjunto técnico disponible" if chart_url else "No adjuntado"
+    chart_text = _annex_label(chart_url, True)
     rows = [
         [_p("Presión trabajo", PB), _p(r.get("work_pressure")), _p("Presión prueba", PB), _p(r.get("test_pressure"))],
         [_p("Sostenimiento", PB), _p(f"{_display(r.get('hold_minutes'))} min"), _p("Caída presión", PB), _p(r.get("pressure_drop"))],
         [_p("Medio prueba", PB), _p(r.get("test_medium")), _p("Resultado", PB), _p(r.get("result"))],
         [_p("Control espesores", PB), _p("Sí" if r.get("thickness_control") else "No"), _p("Método espesores", PB), _p(r.get("thickness_method"))],
-        [_p("Valores espesores", PB), _p(r.get("thickness_values")), _p("Gráfico / carta", PB), _p(chart_text)],
+        [_p("Valores espesores", PB), _p(r.get("thickness_values")), _p("Anexo A", PB), _p(chart_text)],
         [_p("Observaciones", PB), _p(r.get("observations")), _p("", PB), _p("")],
     ]
     th = _table(c, rows, MARGIN_X, y, [38 * mm, 57 * mm, 38 * mm, CONTENT_W - 133 * mm])
@@ -554,7 +581,7 @@ def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
         "La información técnica corresponde a los datos cargados y aprobados en el sistema de gestión.",
     ]
     if cert.get("requires_hydraulic_chart"):
-        note_parts.append("Este certificado requiere gráfico/carta de prueba hidráulica como adjunto técnico.")
+        note_parts.append("El gráfico/carta de prueba hidráulica se identifica como ANEXO A y forma parte del legajo técnico asociado a este certificado.")
     notes = " ".join(note_parts)
     c.setFillColor(LIGHTER)
     c.roundRect(MARGIN_X, y - box_h, left_w - 5 * mm, box_h, 2 * mm, stroke=0, fill=1)
@@ -588,7 +615,7 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
     else:
         _badge(c, MARGIN_X, y - 7.5 * mm, "NO APROBADO", "red")
     if cert.get("requires_hydraulic_chart"):
-        _badge(c, MARGIN_X + 38 * mm, y - 7.5 * mm, "GRÁFICO REQUERIDO", "amber")
+        _badge(c, MARGIN_X + 38 * mm, y - 7.5 * mm, "ANEXO A", "amber")
     y -= 13 * mm
 
     if template == "pressure_gauge":
@@ -596,7 +623,7 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
     elif template == "pressure_head_sensor":
         y = _draw_sensor_loop_table(c, sensor_loop, y)
     elif template == "relief_valve_set":
-        y = _draw_relief_section(c, relief, y)
+        y = _draw_relief_section(c, relief, chart_url, y)
         if y > 87 * mm:
             y = _draw_simple_pressure_table(c, tests, y)
     elif template == "hydrostatic_line":
@@ -609,7 +636,7 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
     if y > 73 * mm:
         y = _draw_text_box(c, "Comentarios finales", cert.get("final_comments"), y, 12 * mm, "Sin comentarios finales.")
 
-    _draw_emission_control(c, cert, max(y, 70 * mm))
+    _draw_emission_control(c, cert, max(y, 90 * mm))
     _draw_signature_area(c, cert, 24 * mm)
     _draw_footer(c)
 

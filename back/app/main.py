@@ -13,6 +13,7 @@ STATIC_DIR = BASE_DIR / "static"
 (STATIC_DIR / "qr").mkdir(parents=True, exist_ok=True)
 (STATIC_DIR / "hydraulic-charts").mkdir(parents=True, exist_ok=True)
 (STATIC_DIR / "branding").mkdir(parents=True, exist_ok=True)
+(STATIC_DIR / "pattern-certificates").mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(
     title="SIP Certificados Digitales API",

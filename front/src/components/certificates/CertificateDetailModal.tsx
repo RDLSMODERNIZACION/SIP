@@ -74,8 +74,6 @@ export function CertificateDetailModal({
   const [detail, setDetail] = useState<DetailAny | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [generatedPdfUrl, setGeneratedPdfUrl] = useState<string | null>(null);
   const [uploadingChart, setUploadingChart] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -95,10 +93,7 @@ export function CertificateDetailModal({
   }
 
   useEffect(() => {
-    if (open) {
-      setGeneratedPdfUrl(null);
-      load();
-    }
+    if (open) load();
   }, [open, certificate?.id]);
 
   async function runAction(action: () => Promise<any>) {
@@ -215,29 +210,27 @@ export function CertificateDetailModal({
     const current = detail?.certificate || certificate;
     if (!current) return;
 
+    const popup = typeof window !== "undefined" ? window.open("about:blank", "_blank") : null;
     try {
-      // No abrimos una pestaña en blanco antes de generar.
-      // El usuario queda en el modal viendo el estado de carga y recién se abre el PDF cuando la URL existe.
-      setGeneratingPdf(true);
-      setGeneratedPdfUrl(null);
+      setBusy(true);
       setError(null);
-
       const result = await generatePdf(current.id);
-      const finalUrl = normalizeFileUrl(result?.pdf_url);
-
       await load();
       onChanged();
 
+      const finalUrl = normalizeFileUrl(result?.pdf_url);
       if (finalUrl) {
-        setGeneratedPdfUrl(finalUrl);
-        window.open(finalUrl, "_blank", "noopener,noreferrer");
+        if (popup) popup.location.href = finalUrl;
+        else window.open(finalUrl, "_blank", "noopener,noreferrer");
       } else {
+        popup?.close();
         setError("El PDF se generó, pero el backend no devolvió una URL.");
       }
     } catch (err) {
+      popup?.close();
       setError(err instanceof Error ? err.message : "No se pudo generar el PDF");
     } finally {
-      setGeneratingPdf(false);
+      setBusy(false);
     }
   }
 
@@ -321,17 +314,6 @@ export function CertificateDetailModal({
       <Modal open={open} title={`Certificado ${c.certificate_number}`} onClose={onClose} wide>
         {error ? <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
         {loading ? <div className="text-sm text-slate-500">Cargando detalle...</div> : null}
-        {generatingPdf ? (
-          <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-medium text-slate-700">
-            Generando PDF. No cierres esta ventana; se abrirá automáticamente cuando esté listo.
-          </div>
-        ) : null}
-        {generatedPdfUrl ? (
-          <div className="mb-4 rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-            PDF generado correctamente. Si no se abrió automáticamente, {" "}
-            <a className="font-semibold underline" href={generatedPdfUrl} target="_blank" rel="noreferrer">abrilo desde acá</a>.
-          </div>
-        ) : null}
 
         <input
           ref={hydraulicInputRef}
@@ -374,8 +356,7 @@ export function CertificateDetailModal({
             {(mdRequired || requiresHydraulicChart || templateType !== "general_pressure") ? (
               <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5">
                 <h4 className="font-bold text-slate-950">Requisitos técnicos aplicados</h4>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  <Info label="Requisito MD" value={mdRequired ? "Aplicado automáticamente" : "No aplica"} />
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <Info label="Gráfico hidráulico" value={requiresHydraulicChart ? "Obligatorio para aprobar" : "No obligatorio"} />
                   <Info label="Estado del gráfico" value={hydraulicChart?.file_url ? "Cargado" : requiresHydraulicChart ? "Pendiente" : "—"} />
                 </div>
@@ -473,11 +454,7 @@ export function CertificateDetailModal({
                   <Button variant="secondary" disabled={busy} onClick={handleViewQr}>Ver QR</Button>
                 ) : null}
 
-                {canGenerate ? (
-                  <Button variant="secondary" disabled={busy || generatingPdf} onClick={handleGeneratePdf}>
-                    {generatingPdf ? "Generando PDF..." : "Generar PDF"}
-                  </Button>
-                ) : null}
+                {canGenerate ? <Button variant="secondary" disabled={busy} onClick={handleGeneratePdf}>Generar PDF</Button> : null}
                 {(c.pdf_url || c.status === "approved") ? (
                   <Button variant="secondary" disabled={busy} onClick={handleOpenPdf}>
                     Ver PDF generado
@@ -617,7 +594,7 @@ function TextBlock({ label, value }: { label: string; value?: string | null }) {
 function MetrologySection({ rows, unit }: { rows: any[]; unit?: string }) {
   return (
     <section className="rounded-2xl border border-slate-200 p-5">
-      <h4 className="font-bold text-slate-950">Tabla metrológica - Patrón vs instrumento MD</h4>
+      <h4 className="font-bold text-slate-950">Tabla metrológica - Patrón vs instrumento</h4>
       <p className="mt-1 text-xs text-slate-500">Aplica a manómetros / indicadores de presión. No reemplaza valores numéricos por OK.</p>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[980px] text-sm">
@@ -626,7 +603,7 @@ function MetrologySection({ rows, unit }: { rows: any[]; unit?: string }) {
               <th className="p-3">Punto</th>
               <th className="p-3">Dirección</th>
               <th className="p-3">Presión patrón</th>
-              <th className="p-3">Lectura instrumento MD</th>
+              <th className="p-3">Lectura instrumento</th>
               <th className="p-3">Error</th>
               <th className="p-3">Error admisible</th>
               <th className="p-3">Incertidumbre</th>

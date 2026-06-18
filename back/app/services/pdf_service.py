@@ -91,6 +91,15 @@ def _p(value: Any, style: ParagraphStyle = P, default: str = "—") -> Paragraph
     return Paragraph(_esc(_display(value, default)), style)
 
 
+def _link_p(label: Any, url: Any, style: ParagraphStyle = PS, default: str = "—") -> Paragraph:
+    clean_url = _v(url).strip()
+    clean_label = _display(label, default)
+    if not clean_url:
+        return _p(clean_label, style, default)
+    safe_url = clean_url.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    return Paragraph(f'<link href="{safe_url}"><u>{_esc(clean_label)}</u></link>', style)
+
+
 def _stroke(c: canvas.Canvas, color=LINE, width: float = 0.45):
     c.setStrokeColor(color)
     c.setLineWidth(width)
@@ -436,24 +445,53 @@ def _has_pattern_data(p: dict) -> bool:
 
 def _draw_patterns(c: canvas.Canvas, patterns: list[dict], y: float) -> float:
     real_patterns = [p for p in patterns if _has_pattern_data(p)]
-    y = _section_title(c, "Trazabilidad de patrones aplicados", y)
+    y = _section_title(c, "Datos equipos patrón aplicado", y)
+
     if not real_patterns:
         rows = [[_p("Equipo patrón", PB), _p("Sin equipo patrón declarado"), _p("Estado", PB), _p("—")]]
         y -= _table(c, rows, MARGIN_X, y, [38 * mm, 68 * mm, 25 * mm, CONTENT_W - 131 * mm]) + 6 * mm
         return y
 
-    table_rows = [[_p("Patrón", PSB), _p("Certificado", PSB), _p("Rango", PSB), _p("Calibración", PSB), _p("Recalibración", PSB)]]
+    table_rows = [[
+        _p("Patrón", PSB),
+        _p("Certificado", PSB),
+        _p("Rango", PSB),
+        _p("Fecha de calibración", PSB),
+        _p("Fecha de recalibración", PSB),
+    ]]
+
     for p in real_patterns[:5]:
-        pattern_name = " ".join(filter(None, [_v(p.get("pattern_name")), _v(p.get("pattern_serial_number"))])).strip()
+        base_name = _v(p.get("pattern_name")).strip()
+        serial = _v(p.get("pattern_serial_number")).strip()
+        pattern_name = f"{base_name} SERIE {serial}" if serial and serial not in base_name else base_name
         table_rows.append([
-            _p(pattern_name, PS),
+            _p(pattern_name.upper(), PS),
             _p(p.get("pattern_certificate_number"), PS),
             _p(_num_unit(p.get("pattern_range_value"), p.get("pattern_unit")), PS),
             _p(_date(p.get("pattern_calibration_date")), PS),
             _p(_date(p.get("pattern_recalibration_date")), PS),
         ])
+
     th = _table(c, table_rows, MARGIN_X, y, [43 * mm, 42 * mm, 32 * mm, 35 * mm, CONTENT_W - 152 * mm], header=True)
-    return y - th - 6 * mm
+    y = y - th - 1.2 * mm
+
+    # Fila de trazabilidad del certificado patrón. Se muestra un texto limpio,
+    # con link embebido, en vez de imprimir URLs largas o enlaces de Drive.
+    link_rows = []
+    for p in real_patterns[:3]:
+        url = _v(p.get("pattern_certificate_url")).strip()
+        label = "Ver certificado patrón" if url else "Certificado patrón no cargado en servidor"
+        link_rows.append([
+            _p("CERTIFICADO PATRÓN APLICADO", PB),
+            _link_p(label, url, PS, label),
+        ])
+
+    if link_rows:
+        y -= _table(c, link_rows, MARGIN_X, y, [55 * mm, CONTENT_W - 55 * mm]) + 6 * mm
+    else:
+        y -= 6 * mm
+
+    return y
 
 
 def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
@@ -493,8 +531,7 @@ def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
 
     y = _draw_text_box(c, "Conclusiones", cert.get("conclusions"), y, 14 * mm, "Sin conclusiones declaradas.")
 
-    if y > 72 * mm:
-        y = _draw_patterns(c, patterns, y)
+    y = _draw_patterns(c, patterns, y)
 
     _draw_signature_area(c, cert, 24 * mm)
     _draw_footer(c)

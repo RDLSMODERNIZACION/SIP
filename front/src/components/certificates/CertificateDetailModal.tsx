@@ -86,6 +86,38 @@ export function CertificateDetailModal({
     return true;
   }
 
+  function buildCertificatePdfFallbackUrl(current?: Certificate | null) {
+    if (!current?.certificate_number) return "";
+    const fileName = `${current.certificate_number.replace(/\s+/g, "_").replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`;
+    return `${API_BASE_URL}/static/certificates/${fileName}`;
+  }
+
+  function getCertificatePdfUrl(current?: Certificate | null) {
+    const directUrl = normalizeFileUrl(current?.pdf_url || detail?.certificate?.pdf_url);
+    if (directUrl) return directUrl;
+
+    const pdfFile = (detail?.files || []).find((file: any) =>
+      file.file_type === "pdf" || file.file_type === "certificate_pdf"
+    );
+    const fileUrl = normalizeFileUrl(pdfFile?.file_url);
+    if (fileUrl) return fileUrl;
+
+    // Fallback para PDFs ya generados en /static/certificates aunque el campo pdf_url no haya llegado al frontend.
+    if (current?.status === "approved") return buildCertificatePdfFallbackUrl(current);
+
+    return "";
+  }
+
+  function handleOpenPdf() {
+    const current = detail?.certificate || certificate;
+    const url = getCertificatePdfUrl(current);
+    if (!url) {
+      setError("Este certificado todavía no tiene PDF generado.");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   async function handleDelete() {
     const current = detail?.certificate || certificate;
     if (!current) return;
@@ -224,12 +256,13 @@ export function CertificateDetailModal({
 
   if (!c) return null;
 
-  const canSubmit = hasRole("admin", "certificador") && (c.status === "draft" || c.status === "rejected");
-  const canApprove = hasRole("admin", "aprobador") && c.status === "submitted";
-  const canGenerate = hasRole("admin", "aprobador") && c.status === "approved";
-  const canEdit = hasRole("admin") || (hasRole("certificador") && (c.status === "draft" || c.status === "rejected"));
-  const canDelete = hasRole("admin");
-  const canManageHydraulicChart = hasRole("admin", "aprobador");
+  const isClient = hasRole("cliente");
+  const canSubmit = !isClient && hasRole("admin", "certificador") && (c.status === "draft" || c.status === "rejected");
+  const canApprove = !isClient && hasRole("admin", "aprobador") && c.status === "submitted";
+  const canGenerate = !isClient && hasRole("admin", "aprobador") && c.status === "approved";
+  const canEdit = !isClient && (hasRole("admin") || (hasRole("certificador") && (c.status === "draft" || c.status === "rejected")));
+  const canDelete = !isClient && hasRole("admin");
+  const canManageHydraulicChart = !isClient && hasRole("admin", "aprobador");
 
   return (
     <>
@@ -321,13 +354,17 @@ export function CertificateDetailModal({
                   runAction(() => rejectCertificate(c.id, reason));
                 }}>Rechazar</Button> : null}
 
-                {(canGenerate || c.qr_url) ? (
+                {!isClient && (canGenerate || c.qr_url) ? (
                   <Button variant="secondary" disabled={busy} onClick={handleViewQr}>Ver QR</Button>
                 ) : null}
 
                 {canGenerate ? <Button variant="secondary" disabled={busy} onClick={handleGeneratePdf}>Generar PDF</Button> : null}
-                {c.pdf_url ? <a className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50" href={normalizeFileUrl(c.pdf_url)} target="_blank">Abrir PDF</a> : null}
-                {c.validation_hash ? <a className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50" href={`/validar/${c.validation_hash}`} target="_blank">Ver validación pública</a> : null}
+                {(c.pdf_url || c.status === "approved") ? (
+                  <Button variant="secondary" disabled={busy} onClick={handleOpenPdf}>
+                    Ver PDF generado
+                  </Button>
+                ) : null}
+                {!isClient && c.validation_hash ? <a className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50" href={`/validar/${c.validation_hash}`} target="_blank">Ver validación pública</a> : null}
               </div>
             </section>
 
@@ -403,18 +440,20 @@ export function CertificateDetailModal({
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate-200 p-5">
-              <h4 className="font-bold text-slate-950">Auditoría</h4>
-              <div className="mt-4 space-y-3">
-                {(detail?.audit || []).slice(0, 8).map((a) => (
-                  <div key={a.id} className="rounded-xl border border-slate-100 p-3 text-sm">
-                    <div className="font-medium text-slate-900">{a.action}</div>
-                    <div className="mt-1 text-xs text-slate-500">{formatDateTime(a.created_at)} · {a.user_name || "Sistema"}</div>
-                    {a.detail ? <div className="mt-1 text-slate-500">{a.detail}</div> : null}
-                  </div>
-                ))}
-              </div>
-            </section>
+            {!isClient ? (
+              <section className="rounded-2xl border border-slate-200 p-5">
+                <h4 className="font-bold text-slate-950">Auditoría</h4>
+                <div className="mt-4 space-y-3">
+                  {(detail?.audit || []).slice(0, 8).map((a) => (
+                    <div key={a.id} className="rounded-xl border border-slate-100 p-3 text-sm">
+                      <div className="font-medium text-slate-900">{a.action}</div>
+                      <div className="mt-1 text-xs text-slate-500">{formatDateTime(a.created_at)} · {a.user_name || "Sistema"}</div>
+                      {a.detail ? <div className="mt-1 text-slate-500">{a.detail}</div> : null}
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </aside>
         </div>
       </Modal>

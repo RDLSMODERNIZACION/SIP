@@ -373,7 +373,7 @@ def _has_pattern_data(p: dict) -> bool:
 
 
 def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
-    y = _draw_header(c, cert, "Certificado de calibración", 1)
+    y = _draw_header(c, cert, _clean(cert.get("document_type"), "Certificado de Calibración"), 1)
 
     y = _section_title(c, "Datos del cliente y documento", y)
     rows = [
@@ -500,7 +500,7 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     c = canvas.Canvas(str(filepath), pagesize=A4)
     c.setTitle(f"Certificado {cert.get('certificate_number')}")
     c.setAuthor(settings.COMPANY_NAME)
-    c.setSubject("Certificado de calibración")
+    c.setSubject(_clean(cert.get("document_type"), "Certificado de Calibración"))
 
     _draw_page_1(c, cert, patterns)
     c.showPage()

@@ -8,6 +8,9 @@ from ..config import settings
 
 CERT_COLUMNS = [
     "certificate_number", "certificate_code", "certificate_revision", "certificate_validity",
+    "document_type", "template_type", "md_required", "requires_hydraulic_chart",
+    "previous_certificate_id", "reissue_reason", "responsible_name", "responsible_license",
+    "asset_unit_code", "seal_number", "test_medium", "ambient_temperature",
     "client_id", "equipment_id", "purchase_order", "calibration_date", "expiration_date",
     "test_frequency_months", "element", "type_model", "brand", "serial_number",
     "range_value", "unit", "size_value", "test_type", "reference_method",
@@ -41,6 +44,134 @@ def can_view_certificate(user, cert):
         return True
     return False
 
+
+
+
+
+def list_certificate_templates(user=None):
+    return fetch_all(
+        """
+        select code, name, document_type, description, default_method, default_frequency_months, requires_hydraulic_chart
+        from certificate_templates
+        where active=true
+        order by case code
+          when 'pressure_gauge' then 1
+          when 'pressure_head_sensor' then 2
+          when 'relief_valve_set' then 3
+          when 'hydrostatic_line' then 4
+          else 99 end, name
+        """,
+        [],
+    )
+
+
+def get_client_template_requirement(client_id: str, template_type: str):
+    if not client_id or not template_type:
+        return None
+    return fetch_one(
+        """
+        select *
+        from client_certificate_requirements
+        where client_id=%s and template_type=%s and active=true
+        """,
+        [client_id, template_type],
+    )
+
+
+def apply_client_requirements(data: dict):
+    req = get_client_template_requirement(str(data.get("client_id") or ""), data.get("template_type") or "")
+    if not req:
+        return data
+    if req.get("frequency_months"):
+        data["test_frequency_months"] = data.get("test_frequency_months") or req.get("frequency_months")
+    if req.get("requires_hydraulic_chart"):
+        data["requires_hydraulic_chart"] = True
+    data["md_required"] = True
+    return data
+
+
+def save_specific_results_tx(cur, cert_id, data: dict, replace=True):
+    metrology_results = data.get("metrology_results")
+    sensor_loop_results = data.get("sensor_loop_results")
+    relief_valve_result = data.get("relief_valve_result")
+    hydrostatic_result = data.get("hydrostatic_result")
+
+    if metrology_results is not None:
+        if replace:
+            cur.execute("delete from certificate_metrology_results where certificate_id=%s", [cert_id])
+        for row in metrology_results:
+            cur.execute(
+                """
+                insert into certificate_metrology_results
+                (certificate_id,row_order,point_label,direction,pattern_pressure,instrument_reading,error_value,max_allowed_error,uncertainty,unit,result,observations)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                [cert_id, row.get("row_order"), row.get("point_label"), row.get("direction"), row.get("pattern_pressure"), row.get("instrument_reading"), row.get("error_value"), row.get("max_allowed_error"), row.get("uncertainty"), row.get("unit"), row.get("result"), row.get("observations")],
+            )
+
+    if sensor_loop_results is not None:
+        if replace:
+            cur.execute("delete from certificate_sensor_loop_results where certificate_id=%s", [cert_id])
+        for row in sensor_loop_results:
+            cur.execute(
+                """
+                insert into certificate_sensor_loop_results
+                (certificate_id,row_order,pressure_applied,pattern_reading,expected_signal,measured_signal,signal_unit,display_reading,error_value,max_allowed_error,result,observations)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                [cert_id, row.get("row_order"), row.get("pressure_applied"), row.get("pattern_reading"), row.get("expected_signal"), row.get("measured_signal"), row.get("signal_unit"), row.get("display_reading"), row.get("error_value"), row.get("max_allowed_error"), row.get("result"), row.get("observations")],
+            )
+
+    if relief_valve_result is not None:
+        cur.execute("delete from certificate_relief_valve_results where certificate_id=%s", [cert_id])
+        cur.execute(
+            """
+            insert into certificate_relief_valve_results
+            (certificate_id,set_pressure_required,opening_pressure,tolerance_percent,reclosing_pressure,leak_test_pressure,leak_test_result,seal_number,test_medium,ambient_temperature,result,observations)
+            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            [cert_id, relief_valve_result.get("set_pressure_required"), relief_valve_result.get("opening_pressure"), relief_valve_result.get("tolerance_percent"), relief_valve_result.get("reclosing_pressure"), relief_valve_result.get("leak_test_pressure"), relief_valve_result.get("leak_test_result"), relief_valve_result.get("seal_number"), relief_valve_result.get("test_medium"), relief_valve_result.get("ambient_temperature"), relief_valve_result.get("result"), relief_valve_result.get("observations")],
+        )
+
+    if hydrostatic_result is not None:
+        cur.execute("delete from certificate_hydrostatic_results where certificate_id=%s", [cert_id])
+        cur.execute(
+            """
+            insert into certificate_hydrostatic_results
+            (certificate_id,work_pressure,test_pressure,hold_minutes,pressure_drop,test_medium,thickness_control,thickness_method,thickness_values,result,observations)
+            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            [cert_id, hydrostatic_result.get("work_pressure"), hydrostatic_result.get("test_pressure"), hydrostatic_result.get("hold_minutes"), hydrostatic_result.get("pressure_drop"), hydrostatic_result.get("test_medium"), hydrostatic_result.get("thickness_control"), hydrostatic_result.get("thickness_method"), hydrostatic_result.get("thickness_values"), hydrostatic_result.get("result"), hydrostatic_result.get("observations")],
+        )
+
+
+def validate_certificate_before_approval(cert_id: str, cert: dict):
+    template_type = cert.get("template_type") or "general_pressure"
+
+    if cert.get("requires_hydraulic_chart") or template_type in ("relief_valve_set", "hydrostatic_line"):
+        chart = _get_hydraulic_chart_row(cert_id)
+        if not chart:
+            raise HTTPException(status_code=400, detail="Este tipo de certificado requiere adjuntar el gráfico/carta de prueba hidráulica antes de aprobar.")
+
+    if template_type == "pressure_gauge":
+        rows = fetch_all("select * from certificate_metrology_results where certificate_id=%s", [cert_id])
+        if len(rows) == 0:
+            raise HTTPException(status_code=400, detail="Para manómetros se requiere tabla metrológica patrón vs instrumento.")
+
+    if template_type == "pressure_head_sensor":
+        rows = fetch_all("select * from certificate_sensor_loop_results where certificate_id=%s", [cert_id])
+        if len(rows) == 0:
+            raise HTTPException(status_code=400, detail="Para cabezas de presión/sensores se requiere tabla de lazo eléctrico.")
+
+    if template_type == "relief_valve_set":
+        row = fetch_one("select * from certificate_relief_valve_results where certificate_id=%s", [cert_id])
+        if not row:
+            raise HTTPException(status_code=400, detail="Para válvulas relief/PRV se requieren resultados de apertura, cierre, hermeticidad y precinto.")
+
+    if template_type == "hydrostatic_line":
+        row = fetch_one("select * from certificate_hydrostatic_results where certificate_id=%s", [cert_id])
+        if not row:
+            raise HTTPException(status_code=400, detail="Para líneas/mangueras/bridas se requieren parámetros de ensayo hidrostático.")
 
 
 def get_next_certificate_number(prefix: str = "SIP", year: int | None = None):
@@ -126,6 +257,10 @@ def certificate_detail(cert_id: str, user=None):
     )
     files = fetch_all("select * from certificate_files where certificate_id=%s order by created_at desc", [cert_id])
     hydraulic_chart = next((f for f in files if f.get("file_type") == "hydraulic_test_chart"), None)
+    metrology_results = fetch_all("select * from certificate_metrology_results where certificate_id=%s order by row_order", [cert_id])
+    sensor_loop_results = fetch_all("select * from certificate_sensor_loop_results where certificate_id=%s order by row_order", [cert_id])
+    relief_valve_result = fetch_one("select * from certificate_relief_valve_results where certificate_id=%s", [cert_id])
+    hydrostatic_result = fetch_one("select * from certificate_hydrostatic_results where certificate_id=%s", [cert_id])
     return {
         "certificate": cert,
         "test_rows": rows,
@@ -134,6 +269,10 @@ def certificate_detail(cert_id: str, user=None):
         "audit": audit,
         "files": files,
         "hydraulic_test_chart": hydraulic_chart,
+        "metrology_results": metrology_results,
+        "sensor_loop_results": sensor_loop_results,
+        "relief_valve_result": relief_valve_result,
+        "hydrostatic_result": hydrostatic_result,
     }
 
 def snapshot_client_and_equipment(client_id, equipment_id):
@@ -152,6 +291,13 @@ def create_certificate(payload, user):
     data = payload.model_dump()
     test_rows = data.pop("test_rows", [])
     pattern_usages = data.pop("pattern_usages", [])
+    specific_data = {
+        "metrology_results": data.pop("metrology_results", []),
+        "sensor_loop_results": data.pop("sensor_loop_results", []),
+        "relief_valve_result": data.pop("relief_valve_result", None),
+        "hydrostatic_result": data.pop("hydrostatic_result", None),
+    }
+    data = apply_client_requirements(data)
     client, equipment = snapshot_client_and_equipment(data["client_id"], data.get("equipment_id"))
 
     existing = fetch_one("select id from certificates where certificate_number=%s", [data["certificate_number"]])
@@ -193,6 +339,8 @@ def create_certificate(payload, user):
             for usage in pattern_usages:
                 add_pattern_usage_tx(cur, cert_id, usage["pattern_id"])
 
+            save_specific_results_tx(cur, cert_id, specific_data, replace=True)
+
             cur.execute(
                 "select add_certificate_audit(%s,%s,'created',%s,null,'draft') as id",
                 [cert_id, user["id"], "Certificado creado en borrador."],
@@ -225,6 +373,13 @@ def update_certificate(cert_id: str, payload, user):
     data = payload.model_dump(exclude_unset=True)
     test_rows = data.pop("test_rows", None)
     pattern_usages = data.pop("pattern_usages", None)
+    specific_data = {
+        "metrology_results": data.pop("metrology_results", None),
+        "sensor_loop_results": data.pop("sensor_loop_results", None),
+        "relief_valve_result": data.pop("relief_valve_result", None),
+        "hydrostatic_result": data.pop("hydrostatic_result", None),
+    }
+    data = apply_client_requirements(data) if data.get("client_id") and data.get("template_type") else data
 
     cert_data = {k: v for k, v in data.items() if k in CERT_COLUMNS}
 
@@ -251,6 +406,9 @@ def update_certificate(cert_id: str, payload, user):
                 for usage in pattern_usages:
                     add_pattern_usage_tx(cur, cert_id, usage["pattern_id"])
 
+            if any(value is not None for value in specific_data.values()):
+                save_specific_results_tx(cur, cert_id, specific_data, replace=True)
+
             cur.execute("select add_certificate_audit(%s,%s,'updated',%s,%s,%s)", [cert_id, user["id"], "Certificado actualizado.", cert["status"], cert["status"]])
 
     return certificate_detail(cert_id, user)
@@ -276,6 +434,7 @@ def approve_certificate(cert_id: str, user):
     cert = get_certificate_or_404(cert_id)
     if cert["status"] != "submitted":
         raise HTTPException(status_code=400, detail="Solo se pueden aprobar certificados enviados")
+    validate_certificate_before_approval(cert_id, cert)
     execute(
         """
         update certificates
@@ -332,6 +491,10 @@ def delete_certificate(cert_id: str, user, hard: bool = True):
 
     with get_conn() as conn:
         with conn.cursor() as cur:
+            cur.execute("delete from certificate_metrology_results where certificate_id=%s", [cert_id])
+            cur.execute("delete from certificate_sensor_loop_results where certificate_id=%s", [cert_id])
+            cur.execute("delete from certificate_relief_valve_results where certificate_id=%s", [cert_id])
+            cur.execute("delete from certificate_hydrostatic_results where certificate_id=%s", [cert_id])
             cur.execute("delete from certificate_test_rows where certificate_id=%s", [cert_id])
             cur.execute("delete from certificate_pattern_usage where certificate_id=%s", [cert_id])
             cur.execute("delete from certificate_comments where certificate_id=%s", [cert_id])

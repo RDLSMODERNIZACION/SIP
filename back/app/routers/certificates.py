@@ -13,6 +13,7 @@ from ..services.certificate_service import (
     reject_certificate,
     annul_certificate,
     get_next_certificate_number,
+    list_certificate_templates,
     get_hydraulic_test_chart,
     upload_hydraulic_test_chart,
     delete_hydraulic_test_chart,
@@ -36,6 +37,11 @@ def create(payload: CertificateCreate, user=Depends(require_roles("admin", "cert
 @router.get("/next-number")
 def next_number(prefix: str = "SIP", year: int | None = None, user=Depends(require_roles("admin", "certificador"))):
     return get_next_certificate_number(prefix=prefix, year=year)
+
+
+@router.get("/templates")
+def templates(user=Depends(get_current_user)):
+    return list_certificate_templates(user)
 
 
 @router.get("/{cert_id}")

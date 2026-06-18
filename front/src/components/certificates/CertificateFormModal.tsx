@@ -1,18 +1,17 @@
 "use client";
 
-import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
+import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "@/src/components/ui/Modal";
 import { Button } from "@/src/components/ui/Button";
 import { Field, inputClass } from "@/src/components/ui/Field";
 import {
   createCertificatePending,
-  getCertificateById,
+  getCertificateTemplates,
   getNextCertificateNumber,
-  updateCertificate,
   type CertificateCreatePayload,
+  type CertificateTemplate,
 } from "@/src/lib/certificatesApi";
-import { createEquipment, getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
+import { getClients, getEquipment, getPatterns } from "@/src/lib/resourcesApi";
 import {
   deleteCatalogItem,
   ensureCatalogItem,
@@ -20,12 +19,20 @@ import {
   type CatalogCode,
   type CatalogItem,
 } from "@/src/lib/catalogsApi";
-import type { CertificateDetail, Client, Equipment, Pattern } from "@/src/types";
+import type { Client, Equipment, Pattern } from "@/src/types";
 
 const FIXED_CERTIFICATE_CODE = "CE-SIP-01";
 const FIXED_CERTIFICATE_REVISION = "5";
 const FIXED_CERTIFICATE_VALIDITY = "2024-10-01";
 const DEFAULT_FREQUENCY_MONTHS = 60;
+const MD_DEFAULT_FREQUENCY_MONTHS = 12;
+
+const TEMPLATE_HELP: Record<string, string> = {
+  pressure_gauge: "Manómetro: debe cargar valores numéricos patrón vs instrumento, error e incertidumbre. No usar solo OK/SIN ERROR.",
+  pressure_head_sensor: "Cabeza de presión/sensor: debe cargar presión aplicada, señal mA/V y lectura final.",
+  relief_valve_set: "Válvula relief/PRV: requiere apertura/seteo, cierre, hermeticidad, precinto y gráfico/carta de prueba.",
+  hydrostatic_line: "Línea/manguera/brida/conexión: requiere parámetros hidrostáticos y gráfico/carta de presión vs tiempo.",
+};
 
 type SuggestionItem = {
   label: string;
@@ -66,9 +73,7 @@ function uniqueSuggestionItems(items: SuggestionItem[]) {
     // reemplazamos para poder mostrar la X de eliminación.
     if (!result[existingIndex].id && cleanItem.id) {
       result[existingIndex] = cleanItem;
-      return;
     }
-
   });
   return result.sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -79,15 +84,6 @@ async function settleCatalogSaves(tasks: Array<Promise<unknown>>) {
   if (rejected.length > 0) {
     console.warn("Algunos catálogos no pudieron guardarse como sugerencia", rejected);
   }
-}
-
-function uniqueEquipment(items: Equipment[]) {
-  const result: Equipment[] = [];
-  items.forEach((item) => {
-    if (!item?.id) return;
-    if (!result.some((current) => current.id === item.id)) result.push(item);
-  });
-  return result;
 }
 
 function textValue(item: CatalogItem, field: keyof CatalogItem = "name") {
@@ -113,6 +109,16 @@ function defaultForm(certificateNumber = ""): CertificateCreatePayload {
     certificate_code: FIXED_CERTIFICATE_CODE,
     certificate_revision: FIXED_CERTIFICATE_REVISION,
     certificate_validity: FIXED_CERTIFICATE_VALIDITY,
+    document_type: "Certificado de Calibración",
+    template_type: "general_pressure",
+    md_required: false,
+    requires_hydraulic_chart: false,
+    responsible_name: "",
+    responsible_license: "",
+    asset_unit_code: "",
+    seal_number: "",
+    test_medium: "",
+    ambient_temperature: "",
     client_id: "",
     equipment_id: null,
     calibration_date: calibrationDate,
@@ -162,54 +168,10 @@ function defaultForm(certificateNumber = ""): CertificateCreatePayload {
       { row_order: 6, pressure_label: "PRESIÓN DE PRUEBA N°5", range_value: null, unit: "PSI" },
     ],
     pattern_usages: [],
-  };
-}
-
-
-function detailToForm(detail: CertificateDetail): CertificateCreatePayload {
-  const c = detail.certificate;
-  return {
-    certificate_number: c.certificate_number || "",
-    certificate_code: c.certificate_code || FIXED_CERTIFICATE_CODE,
-    certificate_revision: c.certificate_revision || FIXED_CERTIFICATE_REVISION,
-    certificate_validity: c.certificate_validity || FIXED_CERTIFICATE_VALIDITY,
-    client_id: c.client_id || "",
-    equipment_id: c.equipment_id || null,
-    purchase_order: null,
-    calibration_date: c.calibration_date || null,
-    expiration_date: c.expiration_date || null,
-    test_frequency_months: c.test_frequency_months || DEFAULT_FREQUENCY_MONTHS,
-    element: c.element || "",
-    type_model: c.type_model || "",
-    brand: c.brand || "",
-    serial_number: c.serial_number || "",
-    range_value: c.range_value || "",
-    unit: c.unit || "",
-    size_value: c.size_value || "",
-    test_type: c.test_type || "",
-    reference_method: c.reference_method || "",
-    environmental_conditions: c.environmental_conditions || "",
-    measurement_unit: c.measurement_unit || "",
-    observations: c.observations || "",
-    conclusions: c.conclusions || "",
-    trial_result: c.trial_result || "",
-    approved_result: c.approved_result ?? true,
-    final_comments: c.final_comments || "",
-    is_paid: Boolean(c.is_paid),
-    payment_notes: null,
-    test_rows: (detail.test_rows || []).map((row, index) => ({
-      row_order: row.row_order || index + 1,
-      pressure_label: row.pressure_label || "",
-      range_value: row.range_value ?? null,
-      unit: row.unit || "",
-      acceptance_criteria: row.acceptance_criteria || "",
-      result: row.result || "",
-      observations: row.observations || "",
-    })),
-    pattern_usages: (detail.patterns || [])
-      .map((pattern) => pattern.pattern_id)
-      .filter(Boolean)
-      .map((pattern_id) => ({ pattern_id: String(pattern_id) })),
+    metrology_results: [],
+    sensor_loop_results: [],
+    relief_valve_result: null,
+    hydrostatic_result: null,
   };
 }
 
@@ -231,89 +193,36 @@ function CatalogAutocomplete({
   onDeleteSuggestion?: (item: SuggestionItem) => Promise<void> | void;
 }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
 
   const filtered = useMemo(() => {
     const query = normalizeText(value).toUpperCase();
     const result = query
       ? suggestions.filter((item) => item.label.toUpperCase().includes(query))
       : suggestions;
-    return result.slice(0, 20);
+    return result.slice(0, 12);
   }, [suggestions, value]);
 
-  function updateDropdownPosition() {
-    const input = inputRef.current;
-    if (!input || typeof window === "undefined") return;
-
-    const rect = input.getBoundingClientRect();
-    const margin = 12;
-    const preferredWidth = Math.max(rect.width, 420);
-    const availableWidth = window.innerWidth - margin * 2;
-    const width = Math.min(preferredWidth, availableWidth);
-    let left = rect.left;
-
-    if (left + width > window.innerWidth - margin) {
-      left = window.innerWidth - width - margin;
-    }
-
-    if (left < margin) left = margin;
-
-    const availableBelow = window.innerHeight - rect.bottom - margin;
-    const maxHeight = Math.max(180, Math.min(320, availableBelow));
-
-    setDropdownStyle({
-      position: "fixed",
-      top: rect.bottom + 6,
-      left,
-      width,
-      maxHeight,
-      zIndex: 9999,
-    });
-  }
-
   useEffect(() => {
-    if (!open) return;
-
-    updateDropdownPosition();
-
     function handleClick(event: MouseEvent) {
-      const target = event.target as Node;
-      if (wrapperRef.current?.contains(target)) return;
-      const dropdown = document.getElementById("catalog-autocomplete-portal");
-      if (dropdown?.contains(target)) return;
-      setOpen(false);
-    }
-
-    function handleReposition() {
-      updateDropdownPosition();
+      if (!wrapperRef.current) return;
+      if (!wrapperRef.current.contains(event.target as Node)) setOpen(false);
     }
 
     document.addEventListener("mousedown", handleClick);
-    window.addEventListener("resize", handleReposition);
-    window.addEventListener("scroll", handleReposition, true);
-
-    return () => {
-      document.removeEventListener("mousedown", handleClick);
-      window.removeEventListener("resize", handleReposition);
-      window.removeEventListener("scroll", handleReposition, true);
-    };
-  }, [open, filtered.length]);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   async function handleDelete(item: SuggestionItem, event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
-
-    const canDeleteCatalog = Boolean(item.id && item.catalog);
-    if (!canDeleteCatalog || !onDeleteSuggestion) return;
-
+    if (!item.id || !item.catalog || !onDeleteSuggestion) return;
     const confirmed = window.confirm(`¿Eliminar "${item.label}" de las sugerencias?`);
     if (!confirmed) return;
 
     try {
-      setDeletingId(item.id || item.label);
+      setDeletingId(item.id);
       await onDeleteSuggestion(item);
       if (sameText(value, item.label)) onChange("");
     } finally {
@@ -321,83 +230,63 @@ function CatalogAutocomplete({
     }
   }
 
-  const dropdown =
-    open && filtered.length > 0 && dropdownStyle
-      ? createPortal(
-          <div
-            id="catalog-autocomplete-portal"
-            style={dropdownStyle}
-            className="overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-2xl"
-          >
-            {filtered.map((item) => {
-              const canDelete = Boolean(item.id && item.catalog && onDeleteSuggestion);
-              const deleteKey = item.id || item.label;
-              return (
-                <div
-                  key={`${item.catalog || "local"}-${item.id || item.label}`}
-                  title={item.label}
-                  className="group flex cursor-pointer items-start justify-between gap-3 rounded-lg px-3 py-2 text-slate-800 hover:bg-slate-100"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    onChange(item.label);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="min-w-0 flex-1 whitespace-normal break-words text-left font-medium leading-snug">
-                    {item.label}
-                  </span>
-
-                  {canDelete ? (
-                    <button
-                      type="button"
-                      title="Eliminar sugerencia"
-                      aria-label={`Eliminar ${item.label}`}
-                      className="mt-[-2px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 opacity-100 hover:bg-red-50 hover:text-red-700"
-                      onMouseDown={(event) => handleDelete(item, event)}
-                      disabled={deletingId === deleteKey}
-                    >
-                      {deletingId === deleteKey ? "…" : "×"}
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>,
-          document.body
-        )
-      : null;
-
   return (
     <div ref={wrapperRef} className="relative">
       <div className="relative">
         <input
-          ref={inputRef}
           className={`${inputClass} pr-10`}
           value={value}
           onChange={(event) => {
             onChange(event.target.value);
             setOpen(true);
-            requestAnimationFrame(updateDropdownPosition);
           }}
-          onFocus={() => {
-            setOpen(true);
-            requestAnimationFrame(updateDropdownPosition);
-          }}
+          onFocus={() => setOpen(true)}
           placeholder={placeholder}
         />
         <button
           type="button"
           className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-slate-500 hover:text-slate-900"
-          onClick={() => {
-            setOpen((current) => !current);
-            requestAnimationFrame(updateDropdownPosition);
-          }}
+          onClick={() => setOpen((current) => !current)}
           aria-label="Mostrar sugerencias"
         >
           ▾
         </button>
       </div>
-      {dropdown}
+
+      {open && filtered.length > 0 ? (
+        <div className="absolute z-[80] mt-2 max-h-72 w-full min-w-full overflow-auto rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-xl md:min-w-[420px]">
+          {filtered.map((item) => {
+            const canDelete = Boolean(item.id && item.catalog && onDeleteSuggestion);
+            return (
+              <div
+                key={`${item.catalog || "local"}-${item.id || item.label}`}
+                title={item.label}
+                className="group flex cursor-pointer items-start justify-between gap-3 rounded-lg px-3 py-2 text-slate-800 hover:bg-slate-100"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  onChange(item.label);
+                  setOpen(false);
+                }}
+              >
+                <span className="min-w-0 flex-1 whitespace-normal break-words text-left font-medium leading-snug">
+                  {item.label}
+                </span>
+                {canDelete ? (
+                  <button
+                    type="button"
+                    title="Eliminar sugerencia"
+                    className="mt-[-2px] flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 opacity-100 hover:bg-red-50 hover:text-red-700 md:opacity-0 md:group-hover:opacity-100"
+                    onMouseDown={(event) => handleDelete(item, event)}
+                    disabled={deletingId === item.id}
+                  >
+                    {deletingId === item.id ? "…" : "×"}
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -406,15 +295,12 @@ export function CertificateFormModal({
   open,
   onClose,
   onCreated,
-  mode = "create",
-  certificateId,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
-  mode?: "create" | "edit";
-  certificateId?: string;
 }) {
+  const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
   const [patterns, setPatterns] = useState<Pattern[]>([]);
@@ -423,9 +309,6 @@ export function CertificateFormModal({
   const [elements, setElements] = useState<CatalogItem[]>([]);
   const [elementModels, setElementModels] = useState<CatalogItem[]>([]);
   const [sizes, setSizes] = useState<CatalogItem[]>([]);
-  const [brands, setBrands] = useState<CatalogItem[]>([]);
-  const [serialNumbers, setSerialNumbers] = useState<CatalogItem[]>([]);
-  const [ranges, setRanges] = useState<CatalogItem[]>([]);
   const [frequencies, setFrequencies] = useState<CatalogItem[]>([]);
   const [pressureRows, setPressureRows] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -434,10 +317,8 @@ export function CertificateFormModal({
   const [selectedPatternId, setSelectedPatternId] = useState("");
   const [allowHeaderEdit, setAllowHeaderEdit] = useState(false);
   const [form, setForm] = useState<CertificateCreatePayload>(() => defaultForm());
-  const isEdit = mode === "edit" && Boolean(certificateId);
 
   async function refreshNextNumber() {
-    if (isEdit) return;
     setLoadingNumber(true);
     try {
       const next = await getNextCertificateNumber({ prefix: "SIP" });
@@ -449,40 +330,48 @@ export function CertificateFormModal({
 
   async function loadResources() {
     setError(null);
-    setLoadingNumber(mode === "create");
+    setLoadingNumber(true);
+
+    // Carga catálogos sin romper todo el formulario si algún catálogo opcional
+    // todavía no existe en backend/Supabase. Esto evita mostrar "Not Found" arriba.
+    const safeCatalog = async (catalog: CatalogCode): Promise<CatalogItem[]> => {
+      try {
+        return await getCatalogItems(catalog, { active: true });
+      } catch (err) {
+        console.warn(`No se pudo cargar el catálogo ${catalog}`, err);
+        return [];
+      }
+    };
+
     const [
+      tpl,
       c,
       e,
       p,
       next,
-      detail,
       catUnits,
       catTestTypes,
       catElements,
       catElementModels,
       catSizes,
-      catBrands,
-      catSerialNumbers,
-      catRanges,
       catFrequencies,
       catPressureRows,
     ] = await Promise.all([
+      getCertificateTemplates(),
       getClients(),
       getEquipment(),
       getPatterns(),
-      mode === "create" ? getNextCertificateNumber({ prefix: "SIP" }) : Promise.resolve(null),
-      isEdit && certificateId ? getCertificateById(certificateId) : Promise.resolve(null),
-      getCatalogItems("units", { active: true }),
-      getCatalogItems("test-types", { active: true }),
-      getCatalogItems("elements", { active: true }),
-      getCatalogItems("element-models", { active: true }),
-      getCatalogItems("sizes", { active: true }),
-      getCatalogItems("brands", { active: true }),
-      getCatalogItems("serial-numbers", { active: true }),
-      getCatalogItems("ranges", { active: true }),
-      getCatalogItems("frequencies", { active: true }),
-      getCatalogItems("pressure-rows", { active: true }),
+      getNextCertificateNumber({ prefix: "SIP" }),
+      safeCatalog("units"),
+      safeCatalog("test-types"),
+      safeCatalog("elements"),
+      safeCatalog("element-models"),
+      safeCatalog("sizes"),
+      safeCatalog("frequencies"),
+      safeCatalog("pressure-rows"),
     ]);
+
+    setTemplates(tpl);
     setClients(c);
     setEquipment(e);
     setPatterns(p);
@@ -491,23 +380,12 @@ export function CertificateFormModal({
     setElements(catElements);
     setElementModels(catElementModels);
     setSizes(catSizes);
-    setBrands(catBrands);
-    setSerialNumbers(catSerialNumbers);
-    setRanges(catRanges);
     setFrequencies(catFrequencies);
     setPressureRows(catPressureRows);
+    setSelectedPatternId("");
     setAllowHeaderEdit(false);
 
-    if (detail) {
-      const editForm = detailToForm(detail);
-      setForm(editForm);
-      setSelectedPatternId(editForm.pattern_usages?.[0]?.pattern_id || "");
-      setLoadingNumber(false);
-      return;
-    }
-
-    setSelectedPatternId("");
-    const baseForm = defaultForm(next?.certificate_number || "");
+    const baseForm = defaultForm(next.certificate_number);
     const defaultRows = catPressureRows.length > 0
       ? catPressureRows.map((row, index) => ({
           row_order: Number(row.row_order || index + 1),
@@ -519,6 +397,7 @@ export function CertificateFormModal({
           observations: index === 0 ? undefined : "OK",
         }))
       : baseForm.test_rows;
+
     setForm({
       ...baseForm,
       client_id: c[0]?.id || "",
@@ -527,6 +406,7 @@ export function CertificateFormModal({
       test_type: textValue(catTestTypes[0]) || baseForm.test_type,
       test_rows: defaultRows,
     });
+
     setLoadingNumber(false);
   }
 
@@ -537,7 +417,7 @@ export function CertificateFormModal({
         setError(err instanceof Error ? err.message : "Error cargando datos");
       });
     }
-  }, [open, mode, certificateId]);
+  }, [open]);
 
   const filteredEquipment = useMemo(
     () => equipment.filter((e) => e.client_id === form.client_id),
@@ -552,61 +432,45 @@ export function CertificateFormModal({
   const elementSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...elements.map((item) => ({ label: textValue(item), id: item.id, catalog: "elements" as CatalogCode })),
+      ...equipment.map((item) => ({ label: item.element || "" })),
       { label: form.element || "" },
     ]),
-    [elements, form.element]
+    [elements, equipment, form.element]
   );
 
   const typeModelSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...filteredElementModels.map((item) => ({ label: textValue(item, "full_name"), id: item.id, catalog: "element-models" as CatalogCode })),
+      ...equipment
+        .filter((item) => !form.element || sameText(item.element, form.element))
+        .map((item) => ({ label: item.type_model || "" })),
       { label: form.type_model || "" },
     ]),
-    [filteredElementModels, form.type_model]
+    [filteredElementModels, equipment, form.element, form.type_model]
   );
 
   const unitSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...units.map((item) => ({ label: textValue(item), id: item.id, catalog: "units" as CatalogCode })),
+      ...equipment.map((item) => ({ label: item.unit || "" })),
       { label: form.unit || "" },
       { label: form.measurement_unit || "" },
     ]),
-    [units, form.unit, form.measurement_unit]
+    [units, equipment, form.unit, form.measurement_unit]
   );
 
   const sizeSuggestions = useMemo(
     () => uniqueSuggestionItems([
       ...sizes.map((item) => ({ label: textValue(item), id: item.id, catalog: "sizes" as CatalogCode })),
+      ...equipment.map((item) => ({ label: item.size_value || "" })),
       { label: form.size_value || "" },
     ]),
-    [sizes, form.size_value]
+    [sizes, equipment, form.size_value]
   );
 
   const brandSuggestions = useMemo(
-    () =>
-      uniqueSuggestionItems([
-        ...brands.map((item) => ({ label: textValue(item), id: item.id, catalog: "brands" as CatalogCode })),
-        { label: form.brand || "" },
-      ]),
-    [brands, form.brand]
-  );
-
-  const serialSuggestions = useMemo(
-    () =>
-      uniqueSuggestionItems([
-        ...serialNumbers.map((item) => ({ label: textValue(item), id: item.id, catalog: "serial-numbers" as CatalogCode })),
-        { label: form.serial_number || "" },
-      ]),
-    [serialNumbers, form.serial_number]
-  );
-
-  const rangeSuggestions = useMemo(
-    () =>
-      uniqueSuggestionItems([
-        ...ranges.map((item) => ({ label: textValue(item), id: item.id, catalog: "ranges" as CatalogCode })),
-        { label: form.range_value || "" },
-      ]),
-    [ranges, form.range_value]
+    () => uniqueSuggestionItems([...equipment.map((item) => ({ label: item.brand || "" })), { label: form.brand || "" }]),
+    [equipment, form.brand]
   );
 
   const testTypeSuggestions = useMemo(
@@ -626,109 +490,19 @@ export function CertificateFormModal({
   );
 
   async function handleDeleteSuggestion(item: SuggestionItem) {
+    if (!item.catalog || !item.id) return;
     setError(null);
     try {
-      if (item.catalog && item.id) {
-        await deleteCatalogItem(item.catalog, item.id, false);
-        if (item.catalog === "elements") setElements((prev) => prev.filter((current) => current.id !== item.id));
-        if (item.catalog === "element-models") setElementModels((prev) => prev.filter((current) => current.id !== item.id));
-        if (item.catalog === "units") setUnits((prev) => prev.filter((current) => current.id !== item.id));
-        if (item.catalog === "sizes") setSizes((prev) => prev.filter((current) => current.id !== item.id));
-        if (item.catalog === "brands") setBrands((prev) => prev.filter((current) => current.id !== item.id));
-        if (item.catalog === "serial-numbers") setSerialNumbers((prev) => prev.filter((current) => current.id !== item.id));
-        if (item.catalog === "ranges") setRanges((prev) => prev.filter((current) => current.id !== item.id));
-        if (item.catalog === "test-types") setTestTypes((prev) => prev.filter((current) => current.id !== item.id));
-        if (item.catalog === "pressure-rows") setPressureRows((prev) => prev.filter((current) => current.id !== item.id));
-      }
+      await deleteCatalogItem(item.catalog, item.id, false);
+      if (item.catalog === "elements") setElements((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "element-models") setElementModels((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "units") setUnits((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "sizes") setSizes((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "test-types") setTestTypes((prev) => prev.filter((current) => current.id !== item.id));
+      if (item.catalog === "pressure-rows") setPressureRows((prev) => prev.filter((current) => current.id !== item.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo eliminar la sugerencia");
       throw err;
-    }
-  }
-
-  function buildEquipmentName(payload: CertificateCreatePayload) {
-    const parts = [
-      normalizeText(payload.element),
-      normalizeText(payload.type_model),
-      normalizeText(payload.brand),
-    ].filter(Boolean);
-
-    const baseName = parts.length > 0 ? parts.join(" ") : "Equipo sin nombre";
-    const serial = normalizeText(payload.serial_number);
-    return serial ? `${baseName} - Serie ${serial}` : baseName;
-  }
-
-  function findExistingEquipmentReference(payload: CertificateCreatePayload) {
-    const serial = normalizeText(payload.serial_number);
-    const element = normalizeText(payload.element);
-    const typeModel = normalizeText(payload.type_model);
-    const brand = normalizeText(payload.brand);
-    const range = normalizeText(payload.range_value);
-    const unit = normalizeText(payload.unit);
-    const size = normalizeText(payload.size_value);
-
-    if (payload.equipment_id) {
-      return equipment.find((item) => item.id === payload.equipment_id) || null;
-    }
-
-    if (serial) {
-      const bySerial = equipment.find(
-        (item) => item.client_id === payload.client_id && sameText(item.serial_number, serial)
-      );
-      if (bySerial) return bySerial;
-    }
-
-    return (
-      equipment.find(
-        (item) =>
-          item.client_id === payload.client_id &&
-          sameText(item.element, element) &&
-          sameText(item.type_model, typeModel) &&
-          sameText(item.brand, brand) &&
-          sameText(item.range_value, range) &&
-          sameText(item.unit, unit) &&
-          sameText(item.size_value, size)
-      ) || null
-    );
-  }
-
-  async function saveEquipmentReference(payload: CertificateCreatePayload) {
-    const hasUsefulEquipmentData = [
-      payload.element,
-      payload.type_model,
-      payload.brand,
-      payload.serial_number,
-      payload.range_value,
-      payload.unit,
-      payload.size_value,
-    ].some((value) => normalizeText(value));
-
-    if (!payload.client_id || !hasUsefulEquipmentData) return payload;
-
-    const existing = findExistingEquipmentReference(payload);
-    if (existing) {
-      return { ...payload, equipment_id: existing.id };
-    }
-
-    try {
-      const created = await createEquipment({
-        client_id: payload.client_id,
-        name: buildEquipmentName(payload),
-        element: normalizeText(payload.element),
-        type_model: normalizeText(payload.type_model),
-        brand: normalizeText(payload.brand),
-        serial_number: normalizeText(payload.serial_number),
-        range_value: normalizeText(payload.range_value),
-        unit: normalizeText(payload.unit),
-        size_value: normalizeText(payload.size_value),
-        active: true,
-      });
-
-      setEquipment((prev) => uniqueEquipment([...prev, created]));
-      return { ...payload, equipment_id: created.id };
-    } catch (err) {
-      console.warn("No se pudo guardar el equipo como referencia. Se crea el certificado igual.", err);
-      return payload;
     }
   }
 
@@ -739,9 +513,6 @@ export function CertificateFormModal({
     const unit = normalizeText(payload.unit);
     const measurementUnit = normalizeText(payload.measurement_unit);
     const size = normalizeText(payload.size_value);
-    const brand = normalizeText(payload.brand);
-    const serialNumber = normalizeText(payload.serial_number);
-    const range = normalizeText(payload.range_value);
     const testType = normalizeText(payload.test_type);
 
     if (element) tasks.push(ensureCatalogItem("elements", { name: element }));
@@ -751,9 +522,6 @@ export function CertificateFormModal({
     if (unit) tasks.push(ensureCatalogItem("units", { name: unit }));
     if (measurementUnit && !sameText(measurementUnit, unit)) tasks.push(ensureCatalogItem("units", { name: measurementUnit }));
     if (size) tasks.push(ensureCatalogItem("sizes", { name: size }));
-    if (brand) tasks.push(ensureCatalogItem("brands", { name: brand }));
-    if (serialNumber) tasks.push(ensureCatalogItem("serial-numbers", { name: serialNumber }));
-    if (range) tasks.push(ensureCatalogItem("ranges", { name: range }));
     if (testType) tasks.push(ensureCatalogItem("test-types", { name: testType }));
 
     (payload.test_rows || []).forEach((row, index) => {
@@ -764,6 +532,97 @@ export function CertificateFormModal({
     });
 
     await settleCatalogSaves(tasks);
+  }
+
+
+  function isMdClient(clientId: string) {
+    const client = clients.find((item) => item.id === clientId);
+    const name = normalizeText(client?.name).toUpperCase();
+    return name === "MD" || name === "MD SRL" || name === "MD S.R.L." || client?.cuit === "30710046898";
+  }
+
+  function applyTemplate(templateCode: string) {
+    const template = templates.find((item) => item.code === templateCode);
+    const md = isMdClient(form.client_id);
+    const frequency = md ? MD_DEFAULT_FREQUENCY_MONTHS : Number(template?.default_frequency_months || form.test_frequency_months || DEFAULT_FREQUENCY_MONTHS);
+
+    const patch: Partial<CertificateCreatePayload> = {
+      template_type: templateCode,
+      document_type: template?.document_type || "Certificado de Calibración",
+      reference_method: template?.default_method || form.reference_method,
+      test_frequency_months: frequency,
+      expiration_date: addMonthsIso(form.calibration_date || todayIso(), frequency),
+      md_required: md,
+      requires_hydraulic_chart: Boolean(template?.requires_hydraulic_chart),
+    };
+
+    if (templateCode === "pressure_gauge") {
+      patch.test_type = "Calibración por comparación directa";
+      patch.metrology_results = [
+        { row_order: 1, point_label: "Punto 1", direction: "ascendente", unit: form.unit || "PSI" },
+        { row_order: 2, point_label: "Punto 2", direction: "ascendente", unit: form.unit || "PSI" },
+        { row_order: 3, point_label: "Punto 3", direction: "ascendente", unit: form.unit || "PSI" },
+        { row_order: 4, point_label: "Punto 4", direction: "descendente", unit: form.unit || "PSI" },
+        { row_order: 5, point_label: "Punto 5", direction: "descendente", unit: form.unit || "PSI" },
+      ];
+    }
+
+    if (templateCode === "pressure_head_sensor") {
+      patch.test_type = "Calibración de lazo eléctrico";
+      patch.sensor_loop_results = [1, 2, 3, 4, 5].map((n) => ({ row_order: n, signal_unit: "mA", result: "" }));
+    }
+
+    if (templateCode === "relief_valve_set") {
+      patch.test_type = "Ensayo de apertura / seteo";
+      patch.relief_valve_result = { tolerance_percent: 5, result: "APTO", test_medium: form.test_medium || "Agua/Aire" };
+    }
+
+    if (templateCode === "hydrostatic_line") {
+      patch.test_type = "Ensayo hidrostático de resistencia y estanqueidad";
+      patch.hydrostatic_result = { hold_minutes: 15, pressure_drop: 0, test_medium: form.test_medium || "Agua", result: "APTO" };
+    }
+
+    setForm((prev) => ({ ...prev, ...patch }));
+  }
+
+  function updateMetrologyRow(index: number, key: string, value: string) {
+    setForm((prev) => {
+      const rows = [...(prev.metrology_results || [])];
+      const row = { ...(rows[index] || { row_order: index + 1 }) } as any;
+      row[key] = ["pattern_pressure", "instrument_reading", "error_value", "max_allowed_error", "uncertainty"].includes(key) ? (value === "" ? null : Number(value)) : value;
+      rows[index] = row;
+      return { ...prev, metrology_results: rows };
+    });
+  }
+
+  function updateSensorRow(index: number, key: string, value: string) {
+    setForm((prev) => {
+      const rows = [...(prev.sensor_loop_results || [])];
+      const row = { ...(rows[index] || { row_order: index + 1 }) } as any;
+      row[key] = ["pressure_applied", "pattern_reading", "expected_signal", "measured_signal", "display_reading", "error_value", "max_allowed_error"].includes(key) ? (value === "" ? null : Number(value)) : value;
+      rows[index] = row;
+      return { ...prev, sensor_loop_results: rows };
+    });
+  }
+
+  function updateRelief(key: string, value: string) {
+    setForm((prev) => ({
+      ...prev,
+      relief_valve_result: {
+        ...(prev.relief_valve_result || {}),
+        [key]: ["set_pressure_required", "opening_pressure", "tolerance_percent", "reclosing_pressure", "leak_test_pressure"].includes(key) ? (value === "" ? null : Number(value)) : value,
+      } as any,
+    }));
+  }
+
+  function updateHydro(key: string, value: string | boolean) {
+    setForm((prev) => ({
+      ...prev,
+      hydrostatic_result: {
+        ...(prev.hydrostatic_result || {}),
+        [key]: typeof value === "boolean" ? value : ["work_pressure", "test_pressure", "hold_minutes", "pressure_drop"].includes(key) ? (value === "" ? null : Number(value)) : value,
+      } as any,
+    }));
   }
 
   function update<K extends keyof CertificateCreatePayload>(key: K, value: CertificateCreatePayload[K]) {
@@ -835,6 +694,16 @@ export function CertificateFormModal({
         certificate_code: form.certificate_code || FIXED_CERTIFICATE_CODE,
         certificate_revision: form.certificate_revision || FIXED_CERTIFICATE_REVISION,
         certificate_validity: form.certificate_validity || FIXED_CERTIFICATE_VALIDITY,
+        document_type: normalizeText(form.document_type) || "Certificado de Calibración",
+        template_type: normalizeText(form.template_type) || "general_pressure",
+        md_required: Boolean(form.md_required || isMdClient(form.client_id)),
+        requires_hydraulic_chart: Boolean(form.requires_hydraulic_chart),
+        responsible_name: normalizeText(form.responsible_name),
+        responsible_license: normalizeText(form.responsible_license),
+        asset_unit_code: normalizeText(form.asset_unit_code),
+        seal_number: normalizeText(form.seal_number),
+        test_medium: normalizeText(form.test_medium),
+        ambient_temperature: normalizeText(form.ambient_temperature),
         element: normalizeText(form.element),
         type_model: normalizeText(form.type_model),
         brand: normalizeText(form.brand),
@@ -847,16 +716,11 @@ export function CertificateFormModal({
         pattern_usages: selectedPatternId ? [{ pattern_id: selectedPatternId }] : [],
       };
       await saveNewCatalogSuggestions(payload);
-      const payloadWithEquipment = await saveEquipmentReference(payload);
-      if (isEdit && certificateId) {
-        await updateCertificate(certificateId, payloadWithEquipment);
-      } else {
-        await createCertificatePending(payloadWithEquipment);
-      }
+      await createCertificatePending(payload);
       onCreated();
       onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "No se pudo guardar el certificado";
+      const message = err instanceof Error ? err.message : "No se pudo crear el certificado";
       setError(message.includes("duplicate") ? "El número de certificado ya existe. Actualizá el número y volvé a intentar." : message);
     } finally {
       setLoading(false);
@@ -864,7 +728,7 @@ export function CertificateFormModal({
   }
 
   return (
-    <Modal open={open} title={isEdit ? "Editar certificado" : "Nuevo certificado"} onClose={onClose} wide>
+    <Modal open={open} title="Nuevo certificado" onClose={onClose} wide>
       <form onSubmit={onSubmit} className="space-y-6">
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
 
@@ -877,11 +741,9 @@ export function CertificateFormModal({
               </p>
             </div>
             <div className="flex gap-2">
-              {!isEdit ? (
-                <Button type="button" variant="secondary" onClick={refreshNextNumber} disabled={loadingNumber}>
-                  {loadingNumber ? "Buscando..." : "Actualizar Nº"}
-                </Button>
-              ) : null}
+              <Button type="button" variant="secondary" onClick={refreshNextNumber} disabled={loadingNumber}>
+                {loadingNumber ? "Buscando..." : "Actualizar Nº"}
+              </Button>
               <Button type="button" variant="ghost" onClick={() => setAllowHeaderEdit((v) => !v)}>
                 {allowHeaderEdit ? "Bloquear fijos" : "Editar fijos"}
               </Button>
@@ -924,6 +786,35 @@ export function CertificateFormModal({
               />
             </Field>
           </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="mb-4">
+            <h3 className="text-sm font-bold text-slate-900">Tipo de documento y plantilla técnica</h3>
+            <p className="text-xs text-slate-500">Esto ajusta el método, la frecuencia y las tablas requeridas según el tipo de elemento solicitado por MD.</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="Plantilla técnica">
+              <select className={inputClass} value={form.template_type || "general_pressure"} onChange={(e) => applyTemplate(e.target.value)}>
+                {templates.length === 0 ? <option value="general_pressure">Ensayo general</option> : null}
+                {templates.map((template) => (
+                  <option key={template.code} value={template.code}>{template.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Nombre del documento">
+              <input className={inputClass} value={form.document_type || ""} onChange={(e) => update("document_type", e.target.value)} />
+            </Field>
+            <Field label="Requisito MD / gráfico obligatorio">
+              <div className="flex h-11 items-center gap-4 rounded-xl border border-slate-200 px-3 text-sm">
+                <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(form.md_required)} onChange={(e) => update("md_required", e.target.checked)} /> MD</label>
+                <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(form.requires_hydraulic_chart)} onChange={(e) => update("requires_hydraulic_chart", e.target.checked)} /> Gráfico obligatorio</label>
+              </div>
+            </Field>
+          </div>
+          {form.template_type && TEMPLATE_HELP[String(form.template_type)] ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{TEMPLATE_HELP[String(form.template_type)]}</div>
+          ) : null}
         </section>
 
         <section className="space-y-4">
@@ -996,29 +887,12 @@ export function CertificateFormModal({
               <CatalogAutocomplete
                 value={form.brand || ""}
                 suggestions={brandSuggestions}
-                onDeleteSuggestion={handleDeleteSuggestion}
                 onChange={(value) => update("brand", value)}
                 placeholder="Escribir"
               />
             </Field>
-            <Field label="Serie">
-              <CatalogAutocomplete
-                value={form.serial_number || ""}
-                suggestions={serialSuggestions}
-                onDeleteSuggestion={handleDeleteSuggestion}
-                onChange={(value) => update("serial_number", value)}
-                placeholder="Escribir"
-              />
-            </Field>
-            <Field label="Rango">
-              <CatalogAutocomplete
-                value={form.range_value || ""}
-                suggestions={rangeSuggestions}
-                onDeleteSuggestion={handleDeleteSuggestion}
-                onChange={(value) => update("range_value", value)}
-                placeholder="Escribir"
-              />
-            </Field>
+            <Field label="Serie"><input className={inputClass} value={form.serial_number || ""} onChange={(e) => update("serial_number", e.target.value)} /></Field>
+            <Field label="Rango"><input className={inputClass} value={form.range_value || ""} onChange={(e) => update("range_value", e.target.value)} /></Field>
             <Field label="Unidad rango">
               <CatalogAutocomplete
                 value={form.unit || ""}
@@ -1043,6 +917,18 @@ export function CertificateFormModal({
                 onChange={(value) => update("measurement_unit", value)}
               />
             </Field>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <h3 className="text-sm font-bold text-slate-900">Trazabilidad y datos requeridos</h3>
+          <div className="grid gap-4 md:grid-cols-4">
+            <Field label="Unidad / equipo MD"><input className={inputClass} value={form.asset_unit_code || ""} onChange={(e) => update("asset_unit_code", e.target.value)} placeholder="Ej. U.506 / Equipo 508" /></Field>
+            <Field label="Responsable"><input className={inputClass} value={form.responsible_name || ""} onChange={(e) => update("responsible_name", e.target.value)} /></Field>
+            <Field label="Matrícula / aclaración"><input className={inputClass} value={form.responsible_license || ""} onChange={(e) => update("responsible_license", e.target.value)} /></Field>
+            <Field label="Nº precinto"><input className={inputClass} value={form.seal_number || ""} onChange={(e) => { update("seal_number", e.target.value); updateRelief("seal_number", e.target.value); }} /></Field>
+            <Field label="Medio de prueba"><input className={inputClass} value={form.test_medium || ""} onChange={(e) => { update("test_medium", e.target.value); updateRelief("test_medium", e.target.value); updateHydro("test_medium", e.target.value); }} placeholder="Agua / Aire / Aceite" /></Field>
+            <Field label="Temperatura ambiente"><input className={inputClass} value={form.ambient_temperature || ""} onChange={(e) => { update("ambient_temperature", e.target.value); updateRelief("ambient_temperature", e.target.value); }} /></Field>
           </div>
         </section>
 
@@ -1111,6 +997,30 @@ export function CertificateFormModal({
           </div>
         </section>
 
+        {form.template_type === "pressure_gauge" ? (
+          <section className="space-y-4">
+            <h3 className="text-sm font-bold text-slate-900">Tabla metrológica - Patrón vs instrumento MD</h3>
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full min-w-[980px] text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="p-3">Punto</th><th className="p-3">Dir.</th><th className="p-3">Patrón</th><th className="p-3">Instrumento MD</th><th className="p-3">Error</th><th className="p-3">Error adm.</th><th className="p-3">Incert.</th><th className="p-3">Unidad</th><th className="p-3">Resultado</th></tr></thead>
+                <tbody>{(form.metrology_results || []).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="p-2"><input className={inputClass} value={row.point_label || ""} onChange={(e) => updateMetrologyRow(index,"point_label",e.target.value)} /></td><td className="p-2"><select className={inputClass} value={row.direction || "unico"} onChange={(e) => updateMetrologyRow(index,"direction",e.target.value)}><option value="unico">Único</option><option value="ascendente">Ascendente</option><option value="descendente">Descendente</option></select></td><td className="p-2"><input className={inputClass} type="number" value={row.pattern_pressure ?? ""} onChange={(e) => updateMetrologyRow(index,"pattern_pressure",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.instrument_reading ?? ""} onChange={(e) => updateMetrologyRow(index,"instrument_reading",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.error_value ?? ""} onChange={(e) => updateMetrologyRow(index,"error_value",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.max_allowed_error ?? ""} onChange={(e) => updateMetrologyRow(index,"max_allowed_error",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.uncertainty ?? ""} onChange={(e) => updateMetrologyRow(index,"uncertainty",e.target.value)} /></td><td className="p-2"><input className={inputClass} value={row.unit || form.unit || "PSI"} onChange={(e) => updateMetrologyRow(index,"unit",e.target.value)} /></td><td className="p-2"><input className={inputClass} value={row.result || ""} onChange={(e) => updateMetrologyRow(index,"result",e.target.value)} /></td></tr>)}</tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        {form.template_type === "pressure_head_sensor" ? (
+          <section className="space-y-4"><h3 className="text-sm font-bold text-slate-900">Tabla de lazo eléctrico</h3><div className="overflow-x-auto rounded-2xl border border-slate-200"><table className="w-full min-w-[980px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="p-3">Presión</th><th className="p-3">Patrón</th><th className="p-3">Señal esperada</th><th className="p-3">Señal medida</th><th className="p-3">Unidad señal</th><th className="p-3">Lectura pantalla</th><th className="p-3">Error</th><th className="p-3">Resultado</th></tr></thead><tbody>{(form.sensor_loop_results || []).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="p-2"><input className={inputClass} type="number" value={row.pressure_applied ?? ""} onChange={(e) => updateSensorRow(index,"pressure_applied",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.pattern_reading ?? ""} onChange={(e) => updateSensorRow(index,"pattern_reading",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.expected_signal ?? ""} onChange={(e) => updateSensorRow(index,"expected_signal",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.measured_signal ?? ""} onChange={(e) => updateSensorRow(index,"measured_signal",e.target.value)} /></td><td className="p-2"><input className={inputClass} value={row.signal_unit || "mA"} onChange={(e) => updateSensorRow(index,"signal_unit",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.display_reading ?? ""} onChange={(e) => updateSensorRow(index,"display_reading",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.error_value ?? ""} onChange={(e) => updateSensorRow(index,"error_value",e.target.value)} /></td><td className="p-2"><input className={inputClass} value={row.result || ""} onChange={(e) => updateSensorRow(index,"result",e.target.value)} /></td></tr>)}</tbody></table></div></section>
+        ) : null}
+
+        {form.template_type === "relief_valve_set" ? (
+          <section className="space-y-4"><h3 className="text-sm font-bold text-slate-900">Ensayo de apertura / seteo de válvula</h3><div className="grid gap-4 md:grid-cols-4"><Field label="Presión seteo requerida"><input className={inputClass} type="number" value={form.relief_valve_result?.set_pressure_required ?? ""} onChange={(e)=>updateRelief("set_pressure_required",e.target.value)} /></Field><Field label="Presión apertura real"><input className={inputClass} type="number" value={form.relief_valve_result?.opening_pressure ?? ""} onChange={(e)=>updateRelief("opening_pressure",e.target.value)} /></Field><Field label="Reasentamiento / cierre"><input className={inputClass} type="number" value={form.relief_valve_result?.reclosing_pressure ?? ""} onChange={(e)=>updateRelief("reclosing_pressure",e.target.value)} /></Field><Field label="Hermeticidad asiento"><input className={inputClass} type="number" value={form.relief_valve_result?.leak_test_pressure ?? ""} onChange={(e)=>updateRelief("leak_test_pressure",e.target.value)} /></Field><Field label="Resultado hermeticidad"><input className={inputClass} value={form.relief_valve_result?.leak_test_result || ""} onChange={(e)=>updateRelief("leak_test_result",e.target.value)} /></Field><Field label="Resultado final"><input className={inputClass} value={form.relief_valve_result?.result || "APTO"} onChange={(e)=>updateRelief("result",e.target.value)} /></Field><Field label="Observaciones"><input className={inputClass} value={form.relief_valve_result?.observations || ""} onChange={(e)=>updateRelief("observations",e.target.value)} /></Field></div></section>
+        ) : null}
+
+        {form.template_type === "hydrostatic_line" ? (
+          <section className="space-y-4"><h3 className="text-sm font-bold text-slate-900">Ensayo hidrostático</h3><div className="grid gap-4 md:grid-cols-4"><Field label="Presión trabajo"><input className={inputClass} type="number" value={form.hydrostatic_result?.work_pressure ?? ""} onChange={(e)=>updateHydro("work_pressure",e.target.value)} /></Field><Field label="Presión prueba"><input className={inputClass} type="number" value={form.hydrostatic_result?.test_pressure ?? ""} onChange={(e)=>updateHydro("test_pressure",e.target.value)} /></Field><Field label="Minutos sostenimiento"><input className={inputClass} type="number" value={form.hydrostatic_result?.hold_minutes ?? 15} onChange={(e)=>updateHydro("hold_minutes",e.target.value)} /></Field><Field label="Caída presión"><input className={inputClass} type="number" value={form.hydrostatic_result?.pressure_drop ?? ""} onChange={(e)=>updateHydro("pressure_drop",e.target.value)} /></Field><Field label="Control espesores"><label className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 px-3"><input type="checkbox" checked={Boolean(form.hydrostatic_result?.thickness_control)} onChange={(e)=>updateHydro("thickness_control",e.target.checked)} /> Realizado</label></Field><Field label="Método espesores"><input className={inputClass} value={form.hydrostatic_result?.thickness_method || ""} onChange={(e)=>updateHydro("thickness_method",e.target.value)} /></Field><Field label="Valores espesores"><input className={inputClass} value={form.hydrostatic_result?.thickness_values || ""} onChange={(e)=>updateHydro("thickness_values",e.target.value)} /></Field><Field label="Resultado"><input className={inputClass} value={form.hydrostatic_result?.result || "APTO"} onChange={(e)=>updateHydro("result",e.target.value)} /></Field></div></section>
+        ) : null}
+
         <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">
           <p className="text-xs text-slate-500">
             Los campos con sugerencias permiten escribir valores nuevos. Al guardar, si no existen, se agregan al catálogo para la próxima carga. El certificado queda en <strong>pendiente de aprobación</strong>.
@@ -1118,7 +1028,7 @@ export function CertificateFormModal({
           <div className="flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
             <Button type="submit" disabled={loading || loadingNumber}>
-              {loading ? "Guardando..." : isEdit ? "Guardar cambios" : "Guardar y enviar a aprobación"}
+              {loading ? "Creando..." : "Guardar y enviar a aprobación"}
             </Button>
           </div>
         </div>

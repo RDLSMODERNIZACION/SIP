@@ -51,6 +51,18 @@ export type CertificateCreatePayload = {
   certificate_code?: string;
   certificate_revision?: string;
   certificate_validity?: string;
+  document_type?: string | null;
+  template_type?: string | null;
+  md_required?: boolean;
+  requires_hydraulic_chart?: boolean;
+  previous_certificate_id?: string | null;
+  reissue_reason?: string | null;
+  responsible_name?: string | null;
+  responsible_license?: string | null;
+  asset_unit_code?: string | null;
+  seal_number?: string | null;
+  test_medium?: string | null;
+  ambient_temperature?: string | null;
   client_id: string;
   equipment_id?: string | null;
   purchase_order?: string | null;
@@ -85,6 +97,67 @@ export type CertificateCreatePayload = {
     observations?: string | null;
   }>;
   pattern_usages?: Array<{ pattern_id: string }>;
+  metrology_results?: Array<{
+    row_order: number;
+    point_label?: string | null;
+    direction?: "ascendente" | "descendente" | "unico" | string | null;
+    pattern_pressure?: number | null;
+    instrument_reading?: number | null;
+    error_value?: number | null;
+    max_allowed_error?: number | null;
+    uncertainty?: number | null;
+    unit?: string | null;
+    result?: string | null;
+    observations?: string | null;
+  }>;
+  sensor_loop_results?: Array<{
+    row_order: number;
+    pressure_applied?: number | null;
+    pattern_reading?: number | null;
+    expected_signal?: number | null;
+    measured_signal?: number | null;
+    signal_unit?: string | null;
+    display_reading?: number | null;
+    error_value?: number | null;
+    max_allowed_error?: number | null;
+    result?: string | null;
+    observations?: string | null;
+  }>;
+  relief_valve_result?: {
+    set_pressure_required?: number | null;
+    opening_pressure?: number | null;
+    tolerance_percent?: number | null;
+    reclosing_pressure?: number | null;
+    leak_test_pressure?: number | null;
+    leak_test_result?: string | null;
+    seal_number?: string | null;
+    test_medium?: string | null;
+    ambient_temperature?: string | null;
+    result?: string | null;
+    observations?: string | null;
+  } | null;
+  hydrostatic_result?: {
+    work_pressure?: number | null;
+    test_pressure?: number | null;
+    hold_minutes?: number | null;
+    pressure_drop?: number | null;
+    test_medium?: string | null;
+    thickness_control?: boolean;
+    thickness_method?: string | null;
+    thickness_values?: string | null;
+    result?: string | null;
+    observations?: string | null;
+  } | null;
+};
+
+export type CertificateTemplate = {
+  code: string;
+  name: string;
+  document_type: string;
+  description?: string | null;
+  default_method?: string | null;
+  default_frequency_months?: number | null;
+  requires_hydraulic_chart?: boolean;
 };
 
 export type HydraulicTestChartResponse = {
@@ -114,6 +187,10 @@ export async function getCertificates(params?: { status?: string; client_id?: st
 
 export async function getCertificateById(id: string) {
   return apiFetch<CertificateDetail>(`/certificates/${id}`);
+}
+
+export async function getCertificateTemplates() {
+  return apiFetch<CertificateTemplate[]>("/certificates/templates");
 }
 
 export async function getNextCertificateNumber(params?: { prefix?: string; year?: number }) {

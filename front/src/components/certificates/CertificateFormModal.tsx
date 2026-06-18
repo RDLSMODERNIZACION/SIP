@@ -26,9 +26,6 @@ const FIXED_CERTIFICATE_REVISION = "5";
 const FIXED_CERTIFICATE_VALIDITY = "2024-10-01";
 const DEFAULT_FREQUENCY_MONTHS = 12;
 const MD_DEFAULT_FREQUENCY_MONTHS = 12;
-const DEFAULT_RESPONSIBLE_NAME = "Walter Cisterna";
-const DEFAULT_RESPONSIBLE_LICENSE = "Jefe Tecnico";
-const DEFAULT_AMBIENT_TEMPERATURE = "20° Centigrados";
 
 const TEMPLATE_HELP: Record<string, string> = {
   pressure_gauge: "Manómetro: debe cargar valores numéricos patrón vs instrumento, error e incertidumbre. No usar solo OK/SIN ERROR.",
@@ -116,12 +113,12 @@ function defaultForm(certificateNumber = ""): CertificateCreatePayload {
     template_type: "general_pressure",
     md_required: false,
     requires_hydraulic_chart: false,
-    responsible_name: DEFAULT_RESPONSIBLE_NAME,
-    responsible_license: DEFAULT_RESPONSIBLE_LICENSE,
+    responsible_name: "Walter Cisterna",
+    responsible_license: "Jefe Tecnico",
     asset_unit_code: "",
     seal_number: "",
     test_medium: "",
-    ambient_temperature: DEFAULT_AMBIENT_TEMPERATURE,
+    ambient_temperature: "20° Centigrados",
     client_id: "",
     equipment_id: null,
     calibration_date: calibrationDate,
@@ -182,12 +179,9 @@ function fixedInputClass(editable: boolean) {
   return `${inputClass} ${editable ? "" : "cursor-not-allowed bg-slate-100 text-slate-500"}`;
 }
 
-function isMissing(value: unknown) {
-  return normalizeText(value) === "";
-}
-
-function softRequiredClass(value: unknown) {
-  return `${inputClass} ${isMissing(value) ? "border-amber-300 bg-amber-50 focus:border-amber-500 focus:ring-amber-200" : ""}`;
+function requiredInputClass(value: unknown) {
+  const filled = normalizeText(value).length > 0;
+  return `${inputClass} ${filled ? "" : "border-amber-300 bg-amber-50"}`;
 }
 
 function CatalogAutocomplete({
@@ -196,14 +190,12 @@ function CatalogAutocomplete({
   suggestions,
   placeholder = "Escribir o elegir",
   onDeleteSuggestion,
-  highlightMissing = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   suggestions: SuggestionItem[];
   placeholder?: string;
   onDeleteSuggestion?: (item: SuggestionItem) => Promise<void> | void;
-  highlightMissing?: boolean;
 }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -247,7 +239,7 @@ function CatalogAutocomplete({
     <div ref={wrapperRef} className="relative">
       <div className="relative">
         <input
-          className={`${highlightMissing ? softRequiredClass(value) : inputClass} pr-10`}
+          className={`${inputClass} pr-10`}
           value={value}
           onChange={(event) => {
             onChange(event.target.value);
@@ -308,10 +300,13 @@ export function CertificateFormModal({
   open,
   onClose,
   onCreated,
+  mode = "create",
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  mode?: "create" | "edit";
+  certificateId?: string;
 }) {
   const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -330,6 +325,7 @@ export function CertificateFormModal({
   const [selectedPatternId, setSelectedPatternId] = useState("");
   const [allowHeaderEdit, setAllowHeaderEdit] = useState(false);
   const [form, setForm] = useState<CertificateCreatePayload>(() => defaultForm());
+  const modalTitle = mode === "edit" ? "Editar certificado" : "Nuevo certificado";
 
   async function refreshNextNumber() {
     setLoadingNumber(true);
@@ -395,8 +391,7 @@ export function CertificateFormModal({
     setSizes(catSizes);
     setFrequencies(catFrequencies);
     setPressureRows(catPressureRows);
-    const defaultPatternId = p[0]?.id || "";
-    setSelectedPatternId(defaultPatternId);
+    setSelectedPatternId(p[0]?.id || "");
     setAllowHeaderEdit(false);
 
     const baseForm = defaultForm(next.certificate_number);
@@ -727,7 +722,7 @@ export function CertificateFormModal({
     }
 
     if (!selectedPatternId) {
-      setError("Debe quedar seleccionado al menos un patrón de medida.");
+      setError("Seleccioná un patrón aplicado.");
       return;
     }
 
@@ -773,7 +768,7 @@ export function CertificateFormModal({
   }
 
   return (
-    <Modal open={open} title="Nuevo certificado" onClose={onClose} wide>
+    <Modal open={open} title={modalTitle} onClose={onClose} wide>
       <form onSubmit={onSubmit} className="space-y-6">
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div> : null}
 
@@ -798,7 +793,7 @@ export function CertificateFormModal({
           <div className="grid gap-4 md:grid-cols-4">
             <Field label="Nº certificado">
               <input
-                className={softRequiredClass(form.certificate_number)}
+                className={inputClass}
                 value={form.certificate_number}
                 onChange={(e) => update("certificate_number", e.target.value.toUpperCase())}
                 placeholder="SIP 26-033"
@@ -882,7 +877,7 @@ export function CertificateFormModal({
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="Cliente">
               <select
-                className={softRequiredClass(form.client_id)}
+                className={requiredInputClass(form.client_id)}
                 value={form.client_id}
                 onChange={(e) => {
                   const clientId = e.target.value;
@@ -906,8 +901,8 @@ export function CertificateFormModal({
               </select>
             </Field>
             <Field label="Patrón aplicado">
-              <select className={softRequiredClass(selectedPatternId)} value={selectedPatternId} onChange={(e) => setSelectedPatternId(e.target.value)}>
-                {patterns.length === 0 ? <option value="">No hay patrones cargados</option> : null}
+              <select className={requiredInputClass(selectedPatternId)} value={selectedPatternId} onChange={(e) => setSelectedPatternId(e.target.value)}>
+                {patterns.length === 0 ? <option value="">Sin patrón disponible</option> : null}
                 {patterns.map((p) => <option key={p.id} value={p.id}>{p.name} - Serie {p.serial_number}</option>)}
               </select>
             </Field>
@@ -942,7 +937,6 @@ export function CertificateFormModal({
                 value={form.element || ""}
                 suggestions={elementSuggestions}
                 onDeleteSuggestion={handleDeleteSuggestion}
-                highlightMissing
                 onChange={(value) => setForm((prev) => ({ ...prev, element: value, type_model: prev.element && !sameText(prev.element, value) ? "" : prev.type_model }))}
               />
             </Field>
@@ -969,7 +963,6 @@ export function CertificateFormModal({
                 value={form.unit || ""}
                 suggestions={unitSuggestions}
                 onDeleteSuggestion={handleDeleteSuggestion}
-                highlightMissing
                 onChange={(value) => update("unit", value)}
               />
             </Field>
@@ -986,7 +979,6 @@ export function CertificateFormModal({
                 value={form.measurement_unit || ""}
                 suggestions={unitSuggestions}
                 onDeleteSuggestion={handleDeleteSuggestion}
-                highlightMissing
                 onChange={(value) => update("measurement_unit", value)}
               />
             </Field>
@@ -997,11 +989,11 @@ export function CertificateFormModal({
           <h3 className="text-sm font-bold text-slate-900">Trazabilidad y datos requeridos</h3>
           <div className="grid gap-4 md:grid-cols-4">
             <Field label="Unidad / equipo MD"><input className={inputClass} value={form.asset_unit_code || ""} onChange={(e) => update("asset_unit_code", e.target.value)} placeholder="Ej. U.506 / Equipo 508" /></Field>
-            <Field label="Responsable"><input className={softRequiredClass(form.responsible_name)} value={form.responsible_name || ""} onChange={(e) => update("responsible_name", e.target.value)} /></Field>
-            <Field label="Aclaración / cargo"><input className={softRequiredClass(form.responsible_license)} value={form.responsible_license || ""} onChange={(e) => update("responsible_license", e.target.value)} /></Field>
+            <Field label="Responsable"><input className={requiredInputClass(form.responsible_name)} value={form.responsible_name || ""} onChange={(e) => update("responsible_name", e.target.value)} /></Field>
+            <Field label="Matrícula / aclaración"><input className={requiredInputClass(form.responsible_license)} value={form.responsible_license || ""} onChange={(e) => update("responsible_license", e.target.value)} /></Field>
             <Field label="Nº precinto"><input className={inputClass} value={form.seal_number || ""} onChange={(e) => { update("seal_number", e.target.value); updateRelief("seal_number", e.target.value); }} /></Field>
             <Field label="Medio de prueba"><input className={inputClass} value={form.test_medium || ""} onChange={(e) => { update("test_medium", e.target.value); updateRelief("test_medium", e.target.value); updateHydro("test_medium", e.target.value); }} placeholder="Agua / Aire / Aceite" /></Field>
-            <Field label="Temperatura ambiente"><input className={softRequiredClass(form.ambient_temperature)} value={form.ambient_temperature || ""} onChange={(e) => { update("ambient_temperature", e.target.value); updateRelief("ambient_temperature", e.target.value); }} /></Field>
+            <Field label="Temperatura ambiente"><input className={requiredInputClass(form.ambient_temperature)} value={form.ambient_temperature || ""} onChange={(e) => { update("ambient_temperature", e.target.value); updateRelief("ambient_temperature", e.target.value); }} /></Field>
           </div>
         </section>
 
@@ -1013,12 +1005,11 @@ export function CertificateFormModal({
                 value={form.test_type || ""}
                 suggestions={testTypeSuggestions}
                 onDeleteSuggestion={handleDeleteSuggestion}
-                highlightMissing
                 onChange={(value) => update("test_type", value)}
               />
             </Field>
-            <Field label="Método / protocolo"><textarea className={softRequiredClass(form.reference_method)} rows={4} value={form.reference_method || ""} onChange={(e) => update("reference_method", e.target.value)} /></Field>
-            <Field label="Conclusiones"><textarea className={softRequiredClass(form.conclusions)} rows={4} value={form.conclusions || ""} onChange={(e) => update("conclusions", e.target.value)} /></Field>
+            <Field label="Método / protocolo"><textarea className={inputClass} rows={4} value={form.reference_method || ""} onChange={(e) => update("reference_method", e.target.value)} /></Field>
+            <Field label="Conclusiones"><textarea className={inputClass} rows={4} value={form.conclusions || ""} onChange={(e) => update("conclusions", e.target.value)} /></Field>
             <Field label="Condiciones ambientales"><textarea className={inputClass} rows={3} value={form.environmental_conditions || ""} onChange={(e) => update("environmental_conditions", e.target.value)} /></Field>
             <Field label="Observaciones"><textarea className={inputClass} rows={3} value={form.observations || ""} onChange={(e) => update("observations", e.target.value)} /></Field>
           </div>
@@ -1094,11 +1085,6 @@ export function CertificateFormModal({
         {form.template_type === "hydrostatic_line" ? (
           <section className="space-y-4"><h3 className="text-sm font-bold text-slate-900">Ensayo hidrostático</h3><div className="grid gap-4 md:grid-cols-4"><Field label="Presión trabajo"><input className={inputClass} type="number" value={form.hydrostatic_result?.work_pressure ?? ""} onChange={(e)=>updateHydro("work_pressure",e.target.value)} /></Field><Field label="Presión prueba"><input className={inputClass} type="number" value={form.hydrostatic_result?.test_pressure ?? ""} onChange={(e)=>updateHydro("test_pressure",e.target.value)} /></Field><Field label="Minutos sostenimiento"><input className={inputClass} type="number" value={form.hydrostatic_result?.hold_minutes ?? 15} onChange={(e)=>updateHydro("hold_minutes",e.target.value)} /></Field><Field label="Caída presión"><input className={inputClass} type="number" value={form.hydrostatic_result?.pressure_drop ?? ""} onChange={(e)=>updateHydro("pressure_drop",e.target.value)} /></Field><Field label="Control espesores"><label className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 px-3"><input type="checkbox" checked={Boolean(form.hydrostatic_result?.thickness_control)} onChange={(e)=>updateHydro("thickness_control",e.target.checked)} /> Realizado</label></Field><Field label="Método espesores"><input className={inputClass} value={form.hydrostatic_result?.thickness_method || ""} onChange={(e)=>updateHydro("thickness_method",e.target.value)} /></Field><Field label="Valores espesores"><input className={inputClass} value={form.hydrostatic_result?.thickness_values || ""} onChange={(e)=>updateHydro("thickness_values",e.target.value)} /></Field><Field label="Resultado"><input className={inputClass} value={form.hydrostatic_result?.result || "APTO"} onChange={(e)=>updateHydro("result",e.target.value)} /></Field></div></section>
         ) : null}
-
-
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
-          Los campos resaltados en amarillo tienen datos pendientes o recomendados. Podés guardar el certificado, pero conviene completarlos antes de aprobarlo o emitir el PDF final.
-        </div>
 
         <div className="flex flex-col gap-3 border-t border-slate-100 pt-5 md:flex-row md:items-center md:justify-between">
           <p className="text-xs text-slate-500">

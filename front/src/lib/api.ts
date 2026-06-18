@@ -24,14 +24,25 @@ export function clearToken() {
   if (typeof window !== "undefined") localStorage.removeItem("sip_token");
 }
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+function buildHeaders(optionsHeaders?: HeadersInit, hasBody = false) {
+  const headers = new Headers(optionsHeaders || undefined);
   const token = getToken();
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-    ...(options.headers || {}),
-  };
 
-  if (token) headers.Authorization = `Bearer ${token}`;
+  // Evita pisar Content-Type en FormData/subida de archivos.
+  // Para requests JSON normales, mantiene application/json.
+  if (hasBody && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  return headers;
+}
+
+export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = buildHeaders(options.headers, Boolean(options.body));
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,

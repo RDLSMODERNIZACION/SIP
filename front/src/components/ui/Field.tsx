@@ -1,12 +1,13 @@
 type BaseProps = {
   label: string;
   error?: string;
+  className?: string;
   children: React.ReactNode;
 };
 
-export function Field({ label, error, children }: BaseProps) {
+export function Field({ label, error, className = "", children }: BaseProps) {
   return (
-    <label className="block">
+    <label className={`block ${className}`.trim()}>
       <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
       {children}
       {error ? <span className="mt-1 block text-xs text-red-700">{error}</span> : null}

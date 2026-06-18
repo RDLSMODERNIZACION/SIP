@@ -15,7 +15,7 @@ export type CatalogCode =
   | "pricing";
 
 export type CatalogItem = {
-  id?: string;
+  id: string;
   name?: string;
   code?: string;
   active?: boolean;
@@ -67,9 +67,10 @@ export function getCatalogDefinitions() {
 
 export async function getCatalogItems(
   catalog: CatalogCode,
-  params?: { active?: boolean }
+  params?: { active?: boolean; q?: string }
 ): Promise<CatalogItem[]> {
   const search = new URLSearchParams();
+  if (params?.q) search.set("q", params.q);
   if (params?.active !== undefined) search.set("active", String(params.active));
   const query = search.toString();
   return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${query ? `?${query}` : ""}`);

@@ -10,29 +10,34 @@ export type CatalogCode =
   | "serial-numbers"
   | "ranges"
   | "frequencies"
-  | "pressure-rows";
+  | "pressure-rows"
+  | "payment-terms"
+  | "pricing";
 
 export type CatalogItem = {
-  id: string;
-  name?: string | null;
-  code?: string | null;
+  id?: string;
+  name?: string;
+  code?: string;
   active?: boolean;
   created_at?: string;
   updated_at?: string;
 
-  // Modelos por elemento
-  element_id?: string | null;
-  element_name?: string | null;
-  part_1?: string | null;
-  part_2?: string | null;
-  part_3?: string | null;
-  full_name?: string | null;
+  element_id?: string;
+  element_name?: string;
+  part_1?: string;
+  part_2?: string;
+  part_3?: string;
+  full_name?: string;
 
-  // Frecuencias / filas
-  months?: number | null;
-  row_order?: number | null;
+  months?: number;
+  row_order?: number;
 
-  [key: string]: unknown;
+  element_name_snapshot?: string;
+  type_name?: string;
+  price?: number;
+  estimated_minutes?: number;
+
+  [key: string]: any;
 };
 
 export type CatalogDefinition = {
@@ -41,57 +46,38 @@ export type CatalogDefinition = {
   fields: string[];
 };
 
-export type CatalogListParams = {
-  active?: boolean;
-  q?: string;
-};
-
 export const CATALOG_DEFINITIONS: CatalogDefinition[] = [
   { code: "units", label: "Unidades", fields: ["name", "active"] },
   { code: "test-types", label: "Tipos de prueba", fields: ["name", "active"] },
   { code: "elements", label: "Elementos", fields: ["name", "active"] },
-  {
-    code: "element-models",
-    label: "Modelos",
-    fields: ["element_name", "part_1", "part_2", "part_3", "full_name", "active"],
-  },
+  { code: "element-models", label: "Modelos", fields: ["element_name", "part_1", "part_2", "part_3", "full_name", "active"] },
   { code: "sizes", label: "Sizes", fields: ["name", "active"] },
   { code: "brands", label: "Marcas", fields: ["name", "active"] },
   { code: "serial-numbers", label: "Series", fields: ["name", "active"] },
   { code: "ranges", label: "Rangos", fields: ["name", "active"] },
   { code: "frequencies", label: "Frecuencias", fields: ["name", "months", "active"] },
-  { code: "pressure-rows", label: "Filas de presión", fields: ["name", "row_order", "active"] },
+  { code: "pressure-rows", label: "Filas presión", fields: ["name", "row_order", "active"] },
+  { code: "payment-terms", label: "Condiciones pago", fields: ["name", "active"] },
+  { code: "pricing", label: "Precios y tiempos", fields: ["element_name", "type_name", "price", "estimated_minutes", "active"] },
 ];
 
-export function getCatalogDefinitions(): CatalogDefinition[] {
+export function getCatalogDefinitions() {
   return CATALOG_DEFINITIONS;
-}
-
-function buildQuery(params?: CatalogListParams) {
-  const search = new URLSearchParams();
-
-  if (params?.active !== undefined) {
-    search.set("active", String(params.active));
-  }
-
-  if (params?.q) {
-    search.set("q", params.q);
-  }
-
-  const query = search.toString();
-  return query ? `?${query}` : "";
 }
 
 export async function getCatalogItems(
   catalog: CatalogCode,
-  params?: CatalogListParams
+  params?: { active?: boolean }
 ): Promise<CatalogItem[]> {
-  return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${buildQuery(params)}`);
+  const search = new URLSearchParams();
+  if (params?.active !== undefined) search.set("active", String(params.active));
+  const query = search.toString();
+  return apiFetch<CatalogItem[]>(`/catalogs/${catalog}${query ? `?${query}` : ""}`);
 }
 
 export async function createCatalogItem(
   catalog: CatalogCode,
-  payload: Record<string, unknown>
+  payload: Partial<CatalogItem>
 ): Promise<CatalogItem> {
   return apiFetch<CatalogItem>(`/catalogs/${catalog}`, {
     method: "POST",
@@ -99,22 +85,12 @@ export async function createCatalogItem(
   });
 }
 
-export async function ensureCatalogItem(
-  catalog: CatalogCode,
-  payload: Record<string, unknown>
-): Promise<CatalogItem> {
-  return apiFetch<CatalogItem>(`/catalogs/${catalog}/ensure`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-}
-
 export async function updateCatalogItem(
   catalog: CatalogCode,
-  itemId: string,
-  payload: Record<string, unknown>
+  id: string,
+  payload: Partial<CatalogItem>
 ): Promise<CatalogItem> {
-  return apiFetch<CatalogItem>(`/catalogs/${catalog}/${itemId}`, {
+  return apiFetch<CatalogItem>(`/catalogs/${catalog}/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });
@@ -122,11 +98,20 @@ export async function updateCatalogItem(
 
 export async function deleteCatalogItem(
   catalog: CatalogCode,
-  itemId: string,
+  id: string,
   hard = false
-): Promise<{ ok: boolean; deleted_id?: string; deactivated_id?: string }> {
-  return apiFetch<{ ok: boolean; deleted_id?: string; deactivated_id?: string }>(
-    `/catalogs/${catalog}/${itemId}?hard=${hard ? "true" : "false"}`,
-    { method: "DELETE" }
-  );
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/catalogs/${catalog}/${id}${hard ? "?hard=true" : ""}`, {
+    method: "DELETE",
+  });
+}
+
+export async function ensureCatalogItem(
+  catalog: CatalogCode,
+  payload: Partial<CatalogItem>
+): Promise<CatalogItem> {
+  return apiFetch<CatalogItem>(`/catalogs/${catalog}/ensure`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

@@ -78,15 +78,47 @@ def get_client_template_requirement(client_id: str, template_type: str):
     )
 
 
+def is_md_client(client_id: str | None) -> bool:
+    if not client_id:
+        return False
+    client = fetch_one("select name, cuit from clients where id=%s", [client_id])
+    if not client:
+        return False
+    name = str(client.get("name") or "").strip().upper().replace(" ", "")
+    cuit = str(client.get("cuit") or "").strip()
+    return cuit == "30710046898" or name in ("MD", "MDSRL", "MDS.R.L.")
+
+
+def template_requires_hydraulic_chart(template_type: str | None) -> bool:
+    code = template_type or "general_pressure"
+    if code in ("relief_valve_set", "hydrostatic_line"):
+        return True
+    template = fetch_one("select requires_hydraulic_chart from certificate_templates where code=%s", [code])
+    return bool(template and template.get("requires_hydraulic_chart"))
+
+
 def apply_client_requirements(data: dict):
-    req = get_client_template_requirement(str(data.get("client_id") or ""), data.get("template_type") or "")
-    if not req:
-        return data
-    if req.get("frequency_months"):
-        data["test_frequency_months"] = data.get("test_frequency_months") or req.get("frequency_months")
-    if req.get("requires_hydraulic_chart"):
-        data["requires_hydraulic_chart"] = True
-    data["md_required"] = True
+    # Estas reglas se calculan siempre en backend. El frontend ya no decide manualmente
+    # si aplica MD o si el gráfico/carta hidráulica es obligatorio.
+    client_id = str(data.get("client_id") or "")
+    template_type = data.get("template_type") or "general_pressure"
+
+    data["md_required"] = is_md_client(client_id)
+    data["requires_hydraulic_chart"] = template_requires_hydraulic_chart(template_type)
+
+    req = get_client_template_requirement(client_id, template_type)
+    if req:
+        data["md_required"] = True
+        if req.get("requires_hydraulic_chart"):
+            data["requires_hydraulic_chart"] = True
+        if req.get("frequency_months"):
+            data["test_frequency_months"] = req.get("frequency_months")
+
+    # Para MD la frecuencia se fuerza a 12 meses, salvo que exista una regla específica
+    # con una frecuencia más estricta en client_certificate_requirements.
+    if data["md_required"] and not (req and req.get("frequency_months")):
+        data["test_frequency_months"] = 12
+
     return data
 
 
@@ -379,7 +411,10 @@ def update_certificate(cert_id: str, payload, user):
         "relief_valve_result": data.pop("relief_valve_result", None),
         "hydrostatic_result": data.pop("hydrostatic_result", None),
     }
-    data = apply_client_requirements(data) if data.get("client_id") and data.get("template_type") else data
+    if data.get("client_id") or data.get("template_type"):
+        merged = dict(cert)
+        merged.update(data)
+        data = apply_client_requirements(merged)
 
     cert_data = {k: v for k, v in data.items() if k in CERT_COLUMNS}
 

@@ -1,5 +1,5 @@
 import { apiFetch } from "./api";
-import type { Client, Equipment, Pattern } from "@/src/types";
+import type { Client, Equipment, Pattern, User } from "@/src/types";
 
 export type ClientPayload = Partial<Client> & {
   name?: string;
@@ -29,6 +29,16 @@ export type EquipmentPayload = Partial<Equipment> & {
   location?: string | null;
   notes?: string | null;
   active?: boolean;
+};
+
+export type UserPayload = Partial<User> & {
+  email?: string;
+  full_name?: string;
+  phone?: string | null;
+  role_code?: string;
+  client_id?: string | null;
+  password?: string;
+  status?: string;
 };
 
 export async function getClients() {
@@ -97,4 +107,30 @@ export async function updatePattern(patternId: string, payload: Partial<Pattern>
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+export async function getUsers() {
+  return apiFetch<User[]>("/users");
+}
+
+export async function createUser(payload: UserPayload) {
+  return apiFetch<User>("/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateUser(userId: string, payload: UserPayload) {
+  return apiFetch<User>(`/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deactivateUser(userId: string) {
+  return updateUser(userId, { status: "disabled" });
+}
+
+export async function activateUser(userId: string) {
+  return updateUser(userId, { status: "active" });
 }

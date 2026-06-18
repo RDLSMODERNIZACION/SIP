@@ -1,161 +1,130 @@
-from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
 
-from app.database import fetch_all, fetch_one, execute
-from app.auth import get_current_user
+from ..auth import get_current_user, require_roles
+from ..models import CertificateCreate, CertificateUpdate, RejectRequest, AnnulRequest
+from ..services import certificate_service
+from ..services.qr_service import generate_qr
+from ..services.pdf_service import generate_certificate_pdf
 
-router = APIRouter(prefix="/catalogs", tags=["catalogs"])
+router = APIRouter(prefix="/certificates", tags=["Certificates"])
 
-CATALOGS: Dict[str, Dict[str, Any]] = {
-    "units": {"table": "catalog_units", "cols": ["id", "name", "active", "created_at"]},
-    "test-types": {"table": "catalog_test_types", "cols": ["id", "name", "active", "created_at"]},
-    "elements": {"table": "catalog_elements", "cols": ["id", "name", "active", "created_at"]},
-    "element-models": {"table": "catalog_element_models", "cols": ["id", "element_name", "full_name", "active", "created_at"]},
-    "sizes": {"table": "catalog_sizes", "cols": ["id", "name", "active", "created_at"]},
-    "frequencies": {"table": "catalog_frequencies", "cols": ["id", "name", "months", "active", "created_at"]},
-    "pressure-rows": {"table": "catalog_pressure_rows", "cols": ["id", "name", "row_order", "active", "created_at"]},
-    "brands": {"table": "catalog_brands", "cols": ["id", "name", "active", "created_at"]},
-    "serial-numbers": {"table": "catalog_serial_numbers", "cols": ["id", "name", "active", "created_at"]},
-    "ranges": {"table": "catalog_ranges", "cols": ["id", "name", "active", "created_at"]},
-}
 
-class EnsureCatalogItem(BaseModel):
-    name: Optional[str] = None
-    full_name: Optional[str] = None
-    element_name: Optional[str] = None
-    months: Optional[int] = None
-    row_order: Optional[int] = None
-    active: Optional[bool] = True
+class NextNumberResponse(BaseModel):
+    certificate_number: str
+    prefix: str
+    year_suffix: str
+    next_sequence: int
 
-class UpdateCatalogItem(BaseModel):
-    name: Optional[str] = None
-    full_name: Optional[str] = None
-    element_name: Optional[str] = None
-    months: Optional[int] = None
-    row_order: Optional[int] = None
-    active: Optional[bool] = None
 
-def _catalog(code: str) -> Dict[str, Any]:
-    cfg = CATALOGS.get(code)
-    if not cfg:
-        raise HTTPException(status_code=404, detail="Catálogo no encontrado")
-    return cfg
+@router.get("/templates")
+def list_templates(user=Depends(get_current_user)):
+    return certificate_service.list_certificate_templates(user)
 
-@router.get("/{catalog_code}")
-def list_catalog_items(
-    catalog_code: str,
-    active: Optional[bool] = Query(default=None),
-    current_user: dict = Depends(get_current_user),
+
+@router.get("/next-number")
+def next_certificate_number(
+    prefix: str = Query(default="SIP"),
+    year: int | None = Query(default=None),
+    user=Depends(get_current_user),
 ):
-    cfg = _catalog(catalog_code)
-    table = cfg["table"]
-    cols = ", ".join(cfg["cols"])
-    where = ""
-    params: Dict[str, Any] = {}
-    if active is not None:
-        where = " where active = %(active)s"
-        params["active"] = active
-    order = " order by name asc"
-    if catalog_code == "pressure-rows":
-        order = " order by row_order asc, name asc"
-    if catalog_code == "element-models":
-        order = " order by element_name asc, full_name asc"
-    return fetch_all(f"select {cols} from {table}{where}{order}", params)
+    return certificate_service.get_next_certificate_number(prefix=prefix, year=year)
 
-@router.post("/{catalog_code}/ensure")
-def ensure_catalog_item(
-    catalog_code: str,
-    payload: EnsureCatalogItem,
-    current_user: dict = Depends(get_current_user),
+
+@router.get("")
+def list_certificates(
+    status: str | None = Query(default=None),
+    client_id: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    user=Depends(get_current_user),
 ):
-    cfg = _catalog(catalog_code)
-    table = cfg["table"]
+    return certificate_service.list_certificates(user, status=status, client_id=client_id, q=q)
 
-    if catalog_code == "element-models":
-        element_name = (payload.element_name or "").strip()
-        full_name = (payload.full_name or payload.name or "").strip()
-        if not full_name:
-            raise HTTPException(status_code=400, detail="full_name es obligatorio")
-        existing = fetch_one(
-            f"select {', '.join(cfg['cols'])} from {table} where upper(full_name)=upper(%(full_name)s) and coalesce(upper(element_name),'')=coalesce(upper(%(element_name)s),'') limit 1",
-            {"full_name": full_name, "element_name": element_name},
-        )
-        if existing:
-            if existing.get("active") is False:
-                execute(f"update {table} set active=true where id=%(id)s", {"id": existing["id"]})
-                return fetch_one(f"select {', '.join(cfg['cols'])} from {table} where id=%(id)s", {"id": existing["id"]})
-            return existing
-        return fetch_one(
-            f"insert into {table} (element_name, full_name, active) values (%(element_name)s, %(full_name)s, true) returning {', '.join(cfg['cols'])}",
-            {"element_name": element_name, "full_name": full_name},
-        )
 
-    name = (payload.name or payload.full_name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="name es obligatorio")
-    existing = fetch_one(f"select {', '.join(cfg['cols'])} from {table} where upper(name)=upper(%(name)s) limit 1", {"name": name})
-    if existing:
-        if existing.get("active") is False:
-            execute(f"update {table} set active=true where id=%(id)s", {"id": existing["id"]})
-            return fetch_one(f"select {', '.join(cfg['cols'])} from {table} where id=%(id)s", {"id": existing["id"]})
-        return existing
+@router.post("")
+def create_certificate(payload: CertificateCreate, user=Depends(require_roles("admin", "certificador", "aprobador"))):
+    return certificate_service.create_certificate(payload, user)
 
-    if catalog_code == "frequencies":
-        months = payload.months
-        if months is None:
-            digits = "".join(ch for ch in name if ch.isdigit())
-            months = int(digits) if digits else 0
-        return fetch_one(
-            f"insert into {table} (name, months, active) values (%(name)s, %(months)s, true) returning {', '.join(cfg['cols'])}",
-            {"name": name, "months": months},
-        )
-    if catalog_code == "pressure-rows":
-        return fetch_one(
-            f"insert into {table} (name, row_order, active) values (%(name)s, %(row_order)s, true) returning {', '.join(cfg['cols'])}",
-            {"name": name, "row_order": payload.row_order or 1},
-        )
-    return fetch_one(
-        f"insert into {table} (name, active) values (%(name)s, true) returning {', '.join(cfg['cols'])}",
-        {"name": name},
-    )
 
-@router.patch("/{catalog_code}/{item_id}")
-def update_catalog_item(
-    catalog_code: str,
-    item_id: str,
-    payload: UpdateCatalogItem,
-    current_user: dict = Depends(get_current_user),
+@router.get("/{cert_id}")
+def get_certificate(cert_id: str, user=Depends(get_current_user)):
+    return certificate_service.certificate_detail(cert_id, user)
+
+
+@router.patch("/{cert_id}")
+def update_certificate(
+    cert_id: str,
+    payload: CertificateUpdate,
+    user=Depends(require_roles("admin", "certificador", "aprobador")),
 ):
-    cfg = _catalog(catalog_code)
-    table = cfg["table"]
-    allowed = {"name", "full_name", "element_name", "months", "row_order", "active"}
-    data = payload.model_dump(exclude_unset=True)
-    sets = []
-    params: Dict[str, Any] = {"id": item_id}
-    for k, v in data.items():
-        if k in allowed:
-            sets.append(f"{k} = %({k})s")
-            params[k] = v
-    if not sets:
-        raise HTTPException(status_code=400, detail="Sin cambios")
-    execute(f"update {table} set {', '.join(sets)} where id=%(id)s", params)
-    row = fetch_one(f"select {', '.join(cfg['cols'])} from {table} where id=%(id)s", {"id": item_id})
-    if not row:
-        raise HTTPException(status_code=404, detail="Ítem no encontrado")
-    return row
+    return certificate_service.update_certificate(cert_id, payload, user)
 
-@router.delete("/{catalog_code}/{item_id}")
-def delete_catalog_item(
-    catalog_code: str,
-    item_id: str,
-    hard: bool = Query(default=False),
-    current_user: dict = Depends(get_current_user),
+
+@router.delete("/{cert_id}")
+def delete_certificate(
+    cert_id: str,
+    hard: bool = Query(default=True),
+    user=Depends(require_roles("admin")),
 ):
-    cfg = _catalog(catalog_code)
-    table = cfg["table"]
-    if hard:
-        execute(f"delete from {table} where id=%(id)s", {"id": item_id})
-    else:
-        execute(f"update {table} set active=false where id=%(id)s", {"id": item_id})
-    return {"ok": True}
+    return certificate_service.delete_certificate(cert_id, user, hard=hard)
+
+
+@router.post("/{cert_id}/submit")
+def submit_certificate(cert_id: str, user=Depends(require_roles("admin", "certificador", "aprobador"))):
+    return certificate_service.submit_certificate(cert_id, user)
+
+
+@router.post("/{cert_id}/approve")
+def approve_certificate(cert_id: str, user=Depends(require_roles("admin", "aprobador"))):
+    return certificate_service.approve_certificate(cert_id, user)
+
+
+@router.post("/{cert_id}/reject")
+def reject_certificate(cert_id: str, payload: RejectRequest, user=Depends(require_roles("admin", "aprobador"))):
+    return certificate_service.reject_certificate(cert_id, payload.reason, user)
+
+
+@router.post("/{cert_id}/annul")
+def annul_certificate(cert_id: str, payload: AnnulRequest, user=Depends(require_roles("admin", "aprobador"))):
+    return certificate_service.annul_certificate(cert_id, payload.reason, user)
+
+
+@router.post("/{cert_id}/generate-qr")
+def generate_certificate_qr(cert_id: str, user=Depends(require_roles("admin", "aprobador", "certificador"))):
+    try:
+        qr_url = generate_qr(cert_id, user)
+        return {"qr_url": qr_url}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No se pudo generar el QR: {exc}") from exc
+
+
+@router.post("/{cert_id}/generate-pdf")
+def generate_pdf(cert_id: str, user=Depends(require_roles("admin", "aprobador", "certificador"))):
+    try:
+        pdf_url = generate_certificate_pdf(cert_id, user)
+        return {"pdf_url": pdf_url}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No se pudo generar el PDF: {exc}") from exc
+
+
+@router.get("/{cert_id}/hydraulic-test-chart")
+def get_hydraulic_test_chart(cert_id: str, user=Depends(get_current_user)):
+    return certificate_service.get_hydraulic_test_chart(cert_id, user)
+
+
+@router.post("/{cert_id}/hydraulic-test-chart")
+def upload_hydraulic_test_chart(
+    cert_id: str,
+    file: UploadFile = File(...),
+    user=Depends(require_roles("admin", "aprobador")),
+):
+    return certificate_service.upload_hydraulic_test_chart(cert_id, file, user)
+
+
+@router.delete("/{cert_id}/hydraulic-test-chart")
+def delete_hydraulic_test_chart(cert_id: str, user=Depends(require_roles("admin", "aprobador"))):
+    return certificate_service.delete_hydraulic_test_chart(cert_id, user)

@@ -541,19 +541,41 @@ export function CertificateFormModal({
     return name === "MD" || name === "MD SRL" || name === "MD S.R.L." || client?.cuit === "30710046898";
   }
 
+  function templateRequiresHydraulicChart(templateCode: string) {
+    const template = templates.find((item) => item.code === templateCode);
+    return Boolean(template?.requires_hydraulic_chart || ["relief_valve_set", "hydrostatic_line"].includes(templateCode));
+  }
+
+  function getAutomaticRequirementInfo(clientId = form.client_id, templateCode = String(form.template_type || "general_pressure")) {
+    const md = isMdClient(clientId);
+    const chartRequired = templateRequiresHydraulicChart(templateCode);
+    return { md, chartRequired };
+  }
+
+  function buildAutomaticRequirementPatch(clientId = form.client_id, templateCode = String(form.template_type || "general_pressure")) {
+    const template = templates.find((item) => item.code === templateCode);
+    const md = isMdClient(clientId);
+    const frequency = md
+      ? MD_DEFAULT_FREQUENCY_MONTHS
+      : Number(template?.default_frequency_months || form.test_frequency_months || DEFAULT_FREQUENCY_MONTHS);
+
+    return {
+      md_required: md,
+      requires_hydraulic_chart: templateRequiresHydraulicChart(templateCode),
+      test_frequency_months: frequency,
+      expiration_date: addMonthsIso(form.calibration_date || todayIso(), frequency),
+    };
+  }
+
   function applyTemplate(templateCode: string) {
     const template = templates.find((item) => item.code === templateCode);
-    const md = isMdClient(form.client_id);
-    const frequency = md ? MD_DEFAULT_FREQUENCY_MONTHS : Number(template?.default_frequency_months || form.test_frequency_months || DEFAULT_FREQUENCY_MONTHS);
+    const automatic = buildAutomaticRequirementPatch(form.client_id, templateCode);
 
     const patch: Partial<CertificateCreatePayload> = {
       template_type: templateCode,
       document_type: template?.document_type || "Certificado de Calibración",
       reference_method: template?.default_method || form.reference_method,
-      test_frequency_months: frequency,
-      expiration_date: addMonthsIso(form.calibration_date || todayIso(), frequency),
-      md_required: md,
-      requires_hydraulic_chart: Boolean(template?.requires_hydraulic_chart),
+      ...automatic,
     };
 
     if (templateCode === "pressure_gauge") {
@@ -696,8 +718,8 @@ export function CertificateFormModal({
         certificate_validity: form.certificate_validity || FIXED_CERTIFICATE_VALIDITY,
         document_type: normalizeText(form.document_type) || "Certificado de Calibración",
         template_type: normalizeText(form.template_type) || "general_pressure",
-        md_required: Boolean(form.md_required || isMdClient(form.client_id)),
-        requires_hydraulic_chart: Boolean(form.requires_hydraulic_chart),
+        md_required: isMdClient(form.client_id),
+        requires_hydraulic_chart: templateRequiresHydraulicChart(String(form.template_type || "general_pressure")),
         responsible_name: normalizeText(form.responsible_name),
         responsible_license: normalizeText(form.responsible_license),
         asset_unit_code: normalizeText(form.asset_unit_code),
@@ -805,22 +827,36 @@ export function CertificateFormModal({
             <Field label="Nombre del documento">
               <input className={inputClass} value={form.document_type || ""} onChange={(e) => update("document_type", e.target.value)} />
             </Field>
-            <Field label="Requisito MD / gráfico obligatorio">
-              <div className="flex h-11 items-center gap-4 rounded-xl border border-slate-200 px-3 text-sm">
-                <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(form.md_required)} onChange={(e) => update("md_required", e.target.checked)} /> MD</label>
-                <label className="flex items-center gap-2"><input type="checkbox" checked={Boolean(form.requires_hydraulic_chart)} onChange={(e) => update("requires_hydraulic_chart", e.target.checked)} /> Gráfico obligatorio</label>
-              </div>
-            </Field>
           </div>
-          {form.template_type && TEMPLATE_HELP[String(form.template_type)] ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">{TEMPLATE_HELP[String(form.template_type)]}</div>
-          ) : null}
+          {(() => {
+            const info = getAutomaticRequirementInfo();
+            const messages: string[] = [];
+            if (info.md) messages.push("Requisitos MD aplicados automáticamente: frecuencia 12 meses y validaciones técnicas obligatorias.");
+            if (info.chartRequired) messages.push("Esta plantilla requiere gráfico/carta de prueba hidráulica antes de aprobar.");
+            if (form.template_type && TEMPLATE_HELP[String(form.template_type)]) messages.push(TEMPLATE_HELP[String(form.template_type)]);
+            return messages.length > 0 ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                {messages.map((message) => (
+                  <div key={message}>{message}</div>
+                ))}
+              </div>
+            ) : null;
+          })()}
         </section>
 
         <section className="space-y-4">
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="Cliente">
-              <select className={inputClass} value={form.client_id} onChange={(e) => update("client_id", e.target.value)} required>
+              <select
+                className={inputClass}
+                value={form.client_id}
+                onChange={(e) => {
+                  const clientId = e.target.value;
+                  const automatic = buildAutomaticRequirementPatch(clientId, String(form.template_type || "general_pressure"));
+                  setForm((prev) => ({ ...prev, client_id: clientId, ...automatic }));
+                }}
+                required
+              >
                 <option value="">Seleccionar</option>
                 {clients.map((c) => (
                   <option key={c.id} value={c.id}>{c.name} {c.cuit ? `- ${c.cuit}` : ""}</option>

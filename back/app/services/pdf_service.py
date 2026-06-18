@@ -10,8 +10,8 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from ..config import settings
@@ -28,14 +28,13 @@ BRANDING_DIR.mkdir(parents=True, exist_ok=True)
 PAGE_W, PAGE_H = A4
 MARGIN_X = 14 * mm
 CONTENT_W = PAGE_W - 2 * MARGIN_X
+BOTTOM_SAFE = 23 * mm
 
-# Paleta sobria y formal
+# Paleta sobria / formal
 NAVY = colors.HexColor("#0b1220")
-NAVY_2 = colors.HexColor("#111827")
 SLATE = colors.HexColor("#334155")
 MUTED = colors.HexColor("#64748b")
 LINE = colors.HexColor("#d6dee8")
-LINE_DARK = colors.HexColor("#94a3b8")
 LIGHT = colors.HexColor("#f1f5f9")
 LIGHTER = colors.HexColor("#f8fafc")
 WHITE = colors.white
@@ -47,13 +46,12 @@ AMBER = colors.HexColor("#92400e")
 AMBER_BG = colors.HexColor("#fef3c7")
 
 styles = getSampleStyleSheet()
-
-P = ParagraphStyle("P", parent=styles["Normal"], fontName="Helvetica", fontSize=7.2, leading=9.0, textColor=NAVY)
+P = ParagraphStyle("P", parent=styles["Normal"], fontName="Helvetica", fontSize=7.1, leading=8.7, textColor=NAVY)
 PB = ParagraphStyle("PB", parent=P, fontName="Helvetica-Bold")
-PS = ParagraphStyle("PS", parent=P, fontSize=6.4, leading=7.8, textColor=SLATE)
+PS = ParagraphStyle("PS", parent=P, fontSize=6.25, leading=7.4, textColor=SLATE)
 PSB = ParagraphStyle("PSB", parent=PS, fontName="Helvetica-Bold", textColor=SLATE)
-PTITLE = ParagraphStyle("PTITLE", parent=P, fontName="Helvetica-Bold", fontSize=15.5, leading=18, textColor=NAVY)
-PSUB = ParagraphStyle("PSUB", parent=P, fontSize=7.8, leading=9.5, textColor=MUTED)
+PTITLE = ParagraphStyle("PTITLE", parent=P, fontName="Helvetica-Bold", fontSize=14.8, leading=17, textColor=NAVY)
+PSUB = ParagraphStyle("PSUB", parent=P, fontSize=7.3, leading=8.7, textColor=MUTED)
 PCENTER = ParagraphStyle("PCENTER", parent=P, alignment=TA_CENTER)
 
 
@@ -98,6 +96,14 @@ def _stroke(c: canvas.Canvas, color=LINE, width: float = 0.45):
     c.setLineWidth(width)
 
 
+def _num_unit(value: Any, unit: Any = None) -> str:
+    left = _v(value).strip()
+    right = _v(unit).strip()
+    if left and right:
+        return f"{left} {right}"
+    return left or right or "—"
+
+
 def _validation_payload(cert: dict) -> str:
     public_url = _v(cert.get("public_validation_url")).strip()
     if public_url:
@@ -109,14 +115,13 @@ def _validation_payload(cert: dict) -> str:
 
 
 def _qr_image_reader(cert: dict):
-    payload = _validation_payload(cert)
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_M,
         box_size=8,
         border=2,
     )
-    qr.add_data(payload)
+    qr.add_data(_validation_payload(cert))
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
     buffer = BytesIO()
@@ -160,40 +165,56 @@ def _draw_logo(c: canvas.Canvas, x: float, y: float, w: float, h: float):
     c.restoreState()
 
 
-def _draw_header(c: canvas.Canvas, cert: dict, title: str, page_no: int):
+def _template_label(code: str | None) -> str:
+    return {
+        "pressure_gauge": "Manómetro / indicador de presión",
+        "pressure_head_sensor": "Cabeza de presión / sensor electrónico",
+        "relief_valve_set": "Válvula de seguridad / Relief / PRV",
+        "hydrostatic_line": "Línea / manguera / brida / conexión",
+        "general_pressure": "Ensayo general de presión",
+    }.get(code or "", code or "Ensayo general")
+
+
+def _document_title(cert: dict, page_no: int) -> str:
+    if page_no == 2:
+        return "Registro técnico del ensayo"
+    return _display(cert.get("document_type"), "Certificado técnico")
+
+
+def _draw_header(c: canvas.Canvas, cert: dict, page_no: int):
     c.saveState()
     x = MARGIN_X
-    top_y = PAGE_H - 8 * mm
-    header_h = 35 * mm
+    top_y = PAGE_H - 7 * mm
+    header_h = 36 * mm
     y = top_y - header_h
 
-    # Línea institucional superior
     c.setFillColor(RED)
-    c.rect(x, top_y - 1.5 * mm, CONTENT_W, 0.8 * mm, stroke=0, fill=1)
+    c.rect(x, top_y - 1.5 * mm, CONTENT_W, 0.85 * mm, stroke=0, fill=1)
 
-    # Logo institucional más arriba y con mayor presencia
-    _draw_logo(c, x, y + 12 * mm, 46 * mm, 19.5 * mm)
+    # Logo más arriba, sin recargar el encabezado
+    _draw_logo(c, x, y + 13.4 * mm, 45 * mm, 19 * mm)
 
+    title = _document_title(cert, page_no)
     c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 15.5)
-    c.drawString(x + 56 * mm, y + 24 * mm, title)
-    c.setFont("Helvetica", 7.3)
+    c.setFont("Helvetica-Bold", 14.2)
+    c.drawString(x + 55 * mm, y + 24.5 * mm, title)
+    c.setFont("Helvetica", 7.1)
     c.setFillColor(MUTED)
-    c.drawString(x + 56 * mm, y + 18 * mm, "Documento técnico emitido por SIP Instrumentación")
+    subtitle = _template_label(cert.get("template_type"))
+    c.drawString(x + 55 * mm, y + 18.8 * mm, subtitle)
 
     box_w = 46 * mm
     box_h = 17 * mm
     bx = x + CONTENT_W - box_w
-    by = y + 13.5 * mm
+    by = y + 14 * mm
     c.setFillColor(NAVY)
     c.roundRect(bx, by, box_w, box_h, 3 * mm, stroke=0, fill=1)
     c.setFillColor(WHITE)
-    c.setFont("Helvetica-Bold", 6.6)
-    c.drawCentredString(bx + box_w / 2, by + 11.2 * mm, "CERTIFICADO NÚMERO")
+    c.setFont("Helvetica-Bold", 6.5)
+    c.drawCentredString(bx + box_w / 2, by + 11.4 * mm, "CERTIFICADO NÚMERO")
     c.setFont("Helvetica-Bold", 12)
     c.drawCentredString(bx + box_w / 2, by + 5.1 * mm, cert.get("certificate_number") or "")
 
-    # Metadatos compactos
     meta_y = y + 0.8 * mm
     meta_h = 7.2 * mm
     meta = [
@@ -211,7 +232,7 @@ def _draw_header(c: canvas.Canvas, cert: dict, title: str, page_no: int):
         c.setFont("Helvetica", 5.7)
         c.drawString(xx + 2 * mm, meta_y + 4.5 * mm, label)
         c.setFillColor(NAVY)
-        c.setFont("Helvetica-Bold", 6.3)
+        c.setFont("Helvetica-Bold", 6.25)
         c.drawString(xx + 2 * mm, meta_y + 1.5 * mm, _display(value))
 
     _stroke(c, LINE, 0.6)
@@ -225,7 +246,7 @@ def _draw_footer(c: canvas.Canvas):
     _stroke(c, LINE, 0.45)
     c.line(MARGIN_X, 13 * mm, PAGE_W - MARGIN_X, 13 * mm)
     c.setFillColor(MUTED)
-    c.setFont("Helvetica", 5.8)
+    c.setFont("Helvetica", 5.75)
     footer = f"{settings.COMPANY_ADDRESS} · Cel: {settings.COMPANY_PHONE} · {settings.COMPANY_EMAIL}"
     c.drawCentredString(PAGE_W / 2, 8.5 * mm, footer)
     c.restoreState()
@@ -234,16 +255,16 @@ def _draw_footer(c: canvas.Canvas):
 def _section_title(c: canvas.Canvas, text: str, y: float) -> float:
     c.saveState()
     x = MARGIN_X
-    h = 6.8 * mm
+    h = 6.6 * mm
     c.setFillColor(LIGHT)
     c.roundRect(x, y - h, CONTENT_W, h, 1.8 * mm, stroke=0, fill=1)
     c.setFillColor(RED)
     c.roundRect(x, y - h, 1.4 * mm, h, 0.7 * mm, stroke=0, fill=1)
     c.setFillColor(NAVY)
-    c.setFont("Helvetica-Bold", 7.6)
-    c.drawString(x + 3.5 * mm, y - 4.6 * mm, text.upper())
+    c.setFont("Helvetica-Bold", 7.4)
+    c.drawString(x + 3.5 * mm, y - 4.5 * mm, text.upper())
     c.restoreState()
-    return y - 8.8 * mm
+    return y - 8.6 * mm
 
 
 def _table(c: canvas.Canvas, rows: list[list[Any]], x: float, top_y: float, col_widths: list[float], header: bool = False) -> float:
@@ -252,11 +273,11 @@ def _table(c: canvas.Canvas, rows: list[list[Any]], x: float, top_y: float, col_
         ("GRID", (0, 0), (-1, -1), 0.3, LINE),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 3.2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2),
+        ("FONTSIZE", (0, 0), (-1, -1), 6.6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4.2),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4.2),
+        ("TOPPADDING", (0, 0), (-1, -1), 3.0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3.0),
     ]
     if not header:
         for col in range(0, len(col_widths), 2):
@@ -278,7 +299,7 @@ def _table(c: canvas.Canvas, rows: list[list[Any]], x: float, top_y: float, col_
     return th
 
 
-def _draw_text_box(c: canvas.Canvas, title: str, text: Any, y: float, h: float = 17 * mm, empty_text: str = "—") -> float:
+def _draw_text_box(c: canvas.Canvas, title: str, text: Any, y: float, h: float = 16 * mm, empty_text: str = "—") -> float:
     y = _section_title(c, title, y)
     x = MARGIN_X
     _stroke(c, LINE, 0.35)
@@ -287,7 +308,7 @@ def _draw_text_box(c: canvas.Canvas, title: str, text: Any, y: float, h: float =
     p = _p(text, P, empty_text)
     p.wrapOn(c, CONTENT_W - 6 * mm, h - 5 * mm)
     p.drawOn(c, x + 3 * mm, y - h + 3 * mm)
-    return y - h - 5.5 * mm
+    return y - h - 5 * mm
 
 
 def _badge(c: canvas.Canvas, x: float, y: float, text: str, tone: str = "green"):
@@ -298,10 +319,10 @@ def _badge(c: canvas.Canvas, x: float, y: float, text: str, tone: str = "green")
     else:
         bg, fg = GREEN_BG, GREEN
     c.setFillColor(bg)
-    c.roundRect(x, y, 32 * mm, 7 * mm, 3 * mm, stroke=0, fill=1)
+    c.roundRect(x, y, 34 * mm, 7 * mm, 3 * mm, stroke=0, fill=1)
     c.setFillColor(fg)
-    c.setFont("Helvetica-Bold", 6.2)
-    c.drawCentredString(x + 16 * mm, y + 2.2 * mm, text)
+    c.setFont("Helvetica-Bold", 6.15)
+    c.drawCentredString(x + 17 * mm, y + 2.2 * mm, text)
 
 
 def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
@@ -310,6 +331,8 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
     box_w = (CONTENT_W - gap) / 2
     box_h = 29 * mm
     titles = ["Responsable del ensayo", "Firma y sello del responsable"]
+    responsible = _display(cert.get("responsible_name"), "")
+    license_text = _display(cert.get("responsible_license"), "")
     for i, title in enumerate(titles):
         xx = x + i * (box_w + gap)
         c.setFillColor(WHITE)
@@ -322,10 +345,14 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
         c.drawCentredString(xx + box_w / 2, y + box_h - 4.8 * mm, title.upper())
         c.setStrokeColor(LINE)
         c.setLineWidth(0.45)
-        c.line(xx + 14 * mm, y + 12 * mm, xx + box_w - 14 * mm, y + 12 * mm)
+        c.line(xx + 14 * mm, y + 13 * mm, xx + box_w - 14 * mm, y + 13 * mm)
         c.setFillColor(MUTED)
-        c.setFont("Helvetica", 5.8)
-        c.drawCentredString(xx + box_w / 2, y + 4.5 * mm, f"Certificado N° {cert.get('certificate_number') or ''}")
+        c.setFont("Helvetica", 5.6)
+        if responsible and i == 0:
+            c.drawCentredString(xx + box_w / 2, y + 8.2 * mm, responsible)
+            if license_text:
+                c.drawCentredString(xx + box_w / 2, y + 5.4 * mm, license_text)
+        c.drawCentredString(xx + box_w / 2, y + 2.9 * mm, f"Certificado N° {cert.get('certificate_number') or ''}")
 
 
 def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h: float):
@@ -336,19 +363,11 @@ def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h:
     c.setFillColor(LIGHTER)
     c.roundRect(x, y + h - 8 * mm, w, 8 * mm, 2 * mm, stroke=0, fill=1)
     c.setFillColor(SLATE)
-    c.setFont("Helvetica-Bold", 6.7)
+    c.setFont("Helvetica-Bold", 6.6)
     c.drawString(x + 3 * mm, y + h - 5.2 * mm, "VALIDACIÓN DE AUTENTICIDAD")
     qr_size = min(h - 13 * mm, 27 * mm)
     try:
-        c.drawImage(
-            _qr_image_reader(cert),
-            x + 3 * mm,
-            y + 3.5 * mm,
-            width=qr_size,
-            height=qr_size,
-            preserveAspectRatio=True,
-            mask="auto",
-        )
+        c.drawImage(_qr_image_reader(cert), x + 3 * mm, y + 3.5 * mm, width=qr_size, height=qr_size, preserveAspectRatio=True, mask="auto")
     except Exception:
         c.setFillColor(RED)
         c.setFont("Helvetica", 6)
@@ -372,117 +391,225 @@ def _has_pattern_data(p: dict) -> bool:
     return any(_v(p.get(k)).strip() for k in keys)
 
 
+def _draw_patterns(c: canvas.Canvas, patterns: list[dict], y: float) -> float:
+    real_patterns = [p for p in patterns if _has_pattern_data(p)]
+    y = _section_title(c, "Trazabilidad de patrones aplicados", y)
+    if not real_patterns:
+        rows = [[_p("Equipo patrón", PB), _p("Sin equipo patrón declarado"), _p("Estado", PB), _p("—")]]
+        y -= _table(c, rows, MARGIN_X, y, [38 * mm, 68 * mm, 25 * mm, CONTENT_W - 131 * mm]) + 6 * mm
+        return y
+
+    table_rows = [[_p("Patrón", PSB), _p("Certificado", PSB), _p("Rango", PSB), _p("Calibración", PSB), _p("Recalibración", PSB)]]
+    for p in real_patterns[:5]:
+        pattern_name = " ".join(filter(None, [_v(p.get("pattern_name")), _v(p.get("pattern_serial_number"))])).strip()
+        table_rows.append([
+            _p(pattern_name, PS),
+            _p(p.get("pattern_certificate_number"), PS),
+            _p(_num_unit(p.get("pattern_range_value"), p.get("pattern_unit")), PS),
+            _p(_date(p.get("pattern_calibration_date")), PS),
+            _p(_date(p.get("pattern_recalibration_date")), PS),
+        ])
+    th = _table(c, table_rows, MARGIN_X, y, [43 * mm, 42 * mm, 32 * mm, 35 * mm, CONTENT_W - 152 * mm], header=True)
+    return y - th - 6 * mm
+
+
 def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
-    y = _draw_header(c, cert, _clean(cert.get("document_type"), "Certificado de Calibración"), 1)
+    y = _draw_header(c, cert, 1)
 
     y = _section_title(c, "Datos del cliente y documento", y)
     rows = [
         [_p("Cliente", PB), _p(cert.get("client_name") or cert.get("client_name_snapshot")), _p("CUIT", PB), _p(cert.get("client_cuit") or cert.get("client_cuit_snapshot"))],
         [_p("Orden de compra", PB), _p(cert.get("purchase_order")), _p("Estado administrativo", PB), _p("Pagado" if cert.get("is_paid") else "Pendiente")],
+        [_p("Tipo de documento", PB), _p(cert.get("document_type")), _p("Plantilla técnica", PB), _p(_template_label(cert.get("template_type")))],
     ]
-    y -= _table(c, rows, MARGIN_X, y, [34 * mm, 67 * mm, 34 * mm, CONTENT_W - 135 * mm]) + 6.5 * mm
+    y -= _table(c, rows, MARGIN_X, y, [34 * mm, 67 * mm, 34 * mm, CONTENT_W - 135 * mm]) + 5.5 * mm
 
-    y = _section_title(c, "Datos del equipo certificado", y)
-    range_full = f"{_v(cert.get('range_value')).strip()} {_v(cert.get('unit')).strip()}".strip()
+    y = _section_title(c, "Datos del equipo / activo certificado", y)
     rows = [
         [_p("Elemento", PB), _p(cert.get("element")), _p("Tipo / Modelo", PB), _p(cert.get("type_model"))],
         [_p("Marca", PB), _p(cert.get("brand")), _p("Serie", PB), _p(cert.get("serial_number"))],
-        [_p("Rango", PB), _p(range_full), _p("Size", PB), _p(cert.get("size_value"))],
+        [_p("Rango", PB), _p(_num_unit(cert.get("range_value"), cert.get("unit"))), _p("Size", PB), _p(cert.get("size_value"))],
+        [_p("Unidad / Equipo", PB), _p(cert.get("asset_unit_code")), _p("Precinto", PB), _p(cert.get("seal_number"))],
     ]
-    y -= _table(c, rows, MARGIN_X, y, [30 * mm, 70 * mm, 30 * mm, CONTENT_W - 130 * mm]) + 6.5 * mm
+    y -= _table(c, rows, MARGIN_X, y, [30 * mm, 70 * mm, 30 * mm, CONTENT_W - 130 * mm]) + 5.5 * mm
 
-    y = _section_title(c, "Fechas y frecuencia", y)
-    rows = [[
-        _p("Calibración", PB), _p(_date(cert.get("calibration_date"))),
-        _p("Vencimiento", PB), _p(_date(cert.get("expiration_date"))),
-        _p("Frecuencia", PB), _p(f"{cert.get('test_frequency_months') or ''} meses".strip()),
-    ]]
-    y -= _table(c, rows, MARGIN_X, y, [27 * mm, 36 * mm, 27 * mm, 36 * mm, 27 * mm, CONTENT_W - 153 * mm]) + 6.5 * mm
+    y = _section_title(c, "Fechas, frecuencia y condiciones", y)
+    rows = [
+        [_p("Calibración", PB), _p(_date(cert.get("calibration_date"))), _p("Vencimiento", PB), _p(_date(cert.get("expiration_date"))), _p("Frecuencia", PB), _p(f"{cert.get('test_frequency_months') or ''} meses".strip())],
+        [_p("Medio prueba", PB), _p(cert.get("test_medium")), _p("Temp. ambiente", PB), _p(cert.get("ambient_temperature")), _p("Unidad ensayo", PB), _p(cert.get("measurement_unit"))],
+    ]
+    y -= _table(c, rows, MARGIN_X, y, [25 * mm, 35 * mm, 27 * mm, 35 * mm, 27 * mm, CONTENT_W - 149 * mm]) + 5.5 * mm
 
-    y = _draw_text_box(c, "Método de referencia y protocolo aplicado", cert.get("reference_method"), y, 19 * mm, "Sin método declarado.")
+    y = _draw_text_box(c, "Método de referencia y protocolo aplicado", cert.get("reference_method"), y, 20 * mm, "Sin método declarado.")
 
     y = _section_title(c, "Condiciones del ensayo", y)
     rows = [
-        [_p("Tipo de prueba", PB), _p(cert.get("test_type")), _p("Unidad de medida", PB), _p(cert.get("measurement_unit"))],
-        [_p("Condiciones ambientales", PB), _p(cert.get("environmental_conditions")), _p("Observaciones", PB), _p(cert.get("observations"))],
+        [_p("Tipo de prueba", PB), _p(cert.get("test_type")), _p("Observaciones", PB), _p(cert.get("observations"))],
+        [_p("Condiciones ambientales", PB), _p(cert.get("environmental_conditions")), _p("Resultado", PB), _p(cert.get("trial_result"))],
     ]
-    y -= _table(c, rows, MARGIN_X, y, [39 * mm, 62 * mm, 34 * mm, CONTENT_W - 135 * mm]) + 6.5 * mm
+    y -= _table(c, rows, MARGIN_X, y, [39 * mm, 62 * mm, 34 * mm, CONTENT_W - 135 * mm]) + 5.5 * mm
 
-    y = _draw_text_box(c, "Conclusiones", cert.get("conclusions"), y, 15 * mm, "Sin conclusiones declaradas.")
+    y = _draw_text_box(c, "Conclusiones", cert.get("conclusions"), y, 14 * mm, "Sin conclusiones declaradas.")
 
-    real_patterns = [p for p in patterns if _has_pattern_data(p)]
-    if real_patterns and y > 64 * mm:
-        y = _section_title(c, "Equipos patrón aplicados", y)
-        table_rows = [[_p("Patrón", PSB), _p("Certificado", PSB), _p("Rango", PSB), _p("Calibración", PSB), _p("Recalibración", PSB)]]
-        for p in real_patterns[:4]:
-            pattern_name = " ".join(filter(None, [_v(p.get("pattern_name")), _v(p.get("pattern_serial_number"))])).strip()
-            table_rows.append([
-                _p(pattern_name, PS),
-                _p(p.get("pattern_certificate_number"), PS),
-                _p(f"{_v(p.get('pattern_range_value')).strip()} {_v(p.get('pattern_unit')).strip()}".strip(), PS),
-                _p(_date(p.get("pattern_calibration_date")), PS),
-                _p(_date(p.get("pattern_recalibration_date")), PS),
-            ])
-        th = _table(c, table_rows, MARGIN_X, y, [43 * mm, 42 * mm, 32 * mm, 35 * mm, CONTENT_W - 152 * mm], header=True)
-        y -= th + 6 * mm
+    if y > 72 * mm:
+        y = _draw_patterns(c, patterns, y)
 
     _draw_signature_area(c, cert, 24 * mm)
     _draw_footer(c)
 
 
-def _draw_page_2(c: canvas.Canvas, cert: dict, tests: list[dict]):
-    y = _draw_header(c, cert, "Registro de ensayo", 2)
-
-    y = _section_title(c, "Resumen del ensayo", y)
-    rows = [
-        [_p("Elemento", PB), _p(cert.get("element")), _p("Serie", PB), _p(cert.get("serial_number"))],
-        [_p("Resultado del ensayo", PB), _p(cert.get("trial_result")), _p("Aprobado", PB), _p("SI" if cert.get("approved_result") else "NO")],
-        [_p("Frecuencia", PB), _p(f"{cert.get('test_frequency_months') or ''} meses".strip()), _p("Vencimiento", PB), _p(_date(cert.get("expiration_date")))],
-    ]
-    y -= _table(c, rows, MARGIN_X, y, [39 * mm, 67 * mm, 34 * mm, CONTENT_W - 140 * mm]) + 6.5 * mm
-
-    if cert.get("approved_result"):
-        _badge(c, MARGIN_X, y - 7.5 * mm, "APROBADO", "green")
-    else:
-        _badge(c, MARGIN_X, y - 7.5 * mm, "NO APROBADO", "red")
-    y -= 13 * mm
-
+def _draw_simple_pressure_table(c: canvas.Canvas, tests: list[dict], y: float) -> float:
     y = _section_title(c, "Resultados de presión / control", y)
-    table_rows = [[
-        _p("Presión", PSB),
-        _p("Rango / Unidad", PSB),
-        _p("Criterio de aceptación", PSB),
-        _p("Resultado", PSB),
-        _p("Observaciones", PSB),
-    ]]
-    for t in tests[:12]:
-        table_rows.append([
+    rows = [[_p("Presión", PSB), _p("Rango / Unidad", PSB), _p("Criterio", PSB), _p("Resultado", PSB), _p("Observaciones", PSB)]]
+    for t in tests[:10]:
+        rows.append([
             _p(t.get("pressure_label"), PS),
-            _p(f"{t.get('range_value') if t.get('range_value') is not None else ''} {_v(t.get('unit')).strip()}".strip(), PS),
+            _p(_num_unit(t.get("range_value"), t.get("unit")), PS),
             _p(t.get("acceptance_criteria"), PS),
             _p(t.get("result"), PS),
             _p(t.get("observations"), PS),
         ])
-    while len(table_rows) < 7:
-        idx = len(table_rows)
-        table_rows.append([_p(f"PRESIÓN DE PRUEBA N°{idx}", PS), _p("", PS), _p("", PS), _p("", PS), _p("", PS)])
+    if len(rows) == 1:
+        rows.append([_p("Sin registros", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS)])
+    th = _table(c, rows, MARGIN_X, y, [44 * mm, 33 * mm, 42 * mm, 30 * mm, CONTENT_W - 149 * mm], header=True)
+    return y - th - 6 * mm
 
-    th = _table(c, table_rows, MARGIN_X, y, [45 * mm, 33 * mm, 42 * mm, 30 * mm, CONTENT_W - 150 * mm], header=True)
-    y -= th + 7 * mm
 
-    y = _draw_text_box(c, "Comentarios finales", cert.get("final_comments"), y, 14 * mm, "Sin comentarios finales.")
+def _draw_metrology_table(c: canvas.Canvas, rows_data: list[dict], y: float) -> float:
+    y = _section_title(c, "Tabla metrológica - Patrón vs instrumento MD", y)
+    rows = [[_p("Punto", PSB), _p("Dir.", PSB), _p("Patrón", PSB), _p("Instrumento MD", PSB), _p("Error", PSB), _p("Error adm.", PSB), _p("Incert.", PSB), _p("Resultado", PSB)]]
+    for r in rows_data[:10]:
+        rows.append([
+            _p(r.get("point_label"), PS),
+            _p(r.get("direction"), PS),
+            _p(_num_unit(r.get("pattern_pressure"), r.get("unit")), PS),
+            _p(_num_unit(r.get("instrument_reading"), r.get("unit")), PS),
+            _p(_num_unit(r.get("error_value"), r.get("unit")), PS),
+            _p(_num_unit(r.get("max_allowed_error"), r.get("unit")), PS),
+            _p(_num_unit(r.get("uncertainty"), r.get("unit")), PS),
+            _p(r.get("result"), PS),
+        ])
+    if len(rows) == 1:
+        rows.append([_p("Sin registros", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS)])
+    th = _table(c, rows, MARGIN_X, y, [24 * mm, 20 * mm, 28 * mm, 31 * mm, 23 * mm, 25 * mm, 23 * mm, CONTENT_W - 174 * mm], header=True)
+    return y - th - 6 * mm
 
+
+def _draw_sensor_loop_table(c: canvas.Canvas, rows_data: list[dict], y: float) -> float:
+    y = _section_title(c, "Tabla de calibración de lazo eléctrico", y)
+    rows = [[_p("Presión", PSB), _p("Patrón", PSB), _p("Señal esp.", PSB), _p("Señal med.", PSB), _p("Unidad", PSB), _p("Lectura pantalla", PSB), _p("Error", PSB), _p("Resultado", PSB)]]
+    for r in rows_data[:10]:
+        rows.append([
+            _p(_display(r.get("pressure_applied")), PS),
+            _p(_display(r.get("pattern_reading")), PS),
+            _p(_display(r.get("expected_signal")), PS),
+            _p(_display(r.get("measured_signal")), PS),
+            _p(r.get("signal_unit"), PS),
+            _p(_display(r.get("display_reading")), PS),
+            _p(_display(r.get("error_value")), PS),
+            _p(r.get("result"), PS),
+        ])
+    if len(rows) == 1:
+        rows.append([_p("Sin registros", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS)])
+    th = _table(c, rows, MARGIN_X, y, [24 * mm, 24 * mm, 25 * mm, 25 * mm, 18 * mm, 34 * mm, 20 * mm, CONTENT_W - 170 * mm], header=True)
+    return y - th - 6 * mm
+
+
+def _draw_relief_section(c: canvas.Canvas, result: dict | None, y: float) -> float:
+    y = _section_title(c, "Ensayo de apertura / seteo de válvula Relief / PRV", y)
+    r = result or {}
+    rows = [
+        [_p("Presión seteo requerida", PB), _p(r.get("set_pressure_required")), _p("Presión apertura real", PB), _p(r.get("opening_pressure"))],
+        [_p("Tolerancia", PB), _p(f"{_display(r.get('tolerance_percent'))}%"), _p("Reasentamiento / cierre", PB), _p(r.get("reclosing_pressure"))],
+        [_p("Hermeticidad asiento", PB), _p(r.get("leak_test_pressure")), _p("Resultado hermeticidad", PB), _p(r.get("leak_test_result"))],
+        [_p("Precinto", PB), _p(r.get("seal_number")), _p("Resultado final", PB), _p(r.get("result"))],
+        [_p("Medio / temperatura", PB), _p(" / ".join(filter(None, [_v(r.get("test_medium")).strip(), _v(r.get("ambient_temperature")).strip()]))), _p("Observaciones", PB), _p(r.get("observations"))],
+    ]
+    th = _table(c, rows, MARGIN_X, y, [40 * mm, 55 * mm, 40 * mm, CONTENT_W - 135 * mm])
+    return y - th - 6 * mm
+
+
+def _draw_hydrostatic_section(c: canvas.Canvas, result: dict | None, chart_url: str | None, y: float) -> float:
+    y = _section_title(c, "Ensayo hidrostático de resistencia y estanqueidad", y)
+    r = result or {}
+    chart_text = "Adjunto técnico disponible" if chart_url else "No adjuntado"
+    rows = [
+        [_p("Presión trabajo", PB), _p(r.get("work_pressure")), _p("Presión prueba", PB), _p(r.get("test_pressure"))],
+        [_p("Sostenimiento", PB), _p(f"{_display(r.get('hold_minutes'))} min"), _p("Caída presión", PB), _p(r.get("pressure_drop"))],
+        [_p("Medio prueba", PB), _p(r.get("test_medium")), _p("Resultado", PB), _p(r.get("result"))],
+        [_p("Control espesores", PB), _p("Sí" if r.get("thickness_control") else "No"), _p("Método espesores", PB), _p(r.get("thickness_method"))],
+        [_p("Valores espesores", PB), _p(r.get("thickness_values")), _p("Gráfico / carta", PB), _p(chart_text)],
+        [_p("Observaciones", PB), _p(r.get("observations")), _p("", PB), _p("")],
+    ]
+    th = _table(c, rows, MARGIN_X, y, [38 * mm, 57 * mm, 38 * mm, CONTENT_W - 133 * mm])
+    return y - th - 6 * mm
+
+
+def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
     y = _section_title(c, "Emisión y control", y)
-    notes = "Documento emitido para impresión, revisión y firma por el responsable autorizado. La información técnica corresponde a los datos cargados y aprobados en el sistema de gestión."
     left_w = CONTENT_W - 58 * mm
     box_h = 28 * mm
+    note_parts = [
+        "Documento emitido para impresión, revisión y firma por el responsable autorizado.",
+        "La información técnica corresponde a los datos cargados y aprobados en el sistema de gestión.",
+    ]
+    if cert.get("requires_hydraulic_chart"):
+        note_parts.append("Este certificado requiere gráfico/carta de prueba hidráulica como adjunto técnico.")
+    notes = " ".join(note_parts)
     c.setFillColor(LIGHTER)
     c.roundRect(MARGIN_X, y - box_h, left_w - 5 * mm, box_h, 2 * mm, stroke=0, fill=1)
     p = _p(notes, PS, "")
     p.wrapOn(c, left_w - 11 * mm, box_h - 7 * mm)
     p.drawOn(c, MARGIN_X + 3 * mm, y - 13 * mm)
     _draw_qr_card(c, cert, MARGIN_X + left_w, y - box_h, 58 * mm, box_h)
+    return y - box_h - 5 * mm
 
+
+def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
+    y = _draw_header(c, cert, 2)
+    tests = detail.get("test_rows", []) or []
+    metrology = detail.get("metrology_results", []) or []
+    sensor_loop = detail.get("sensor_loop_results", []) or []
+    relief = detail.get("relief_valve_result")
+    hydro = detail.get("hydrostatic_result")
+    template = cert.get("template_type") or "general_pressure"
+    chart_url = cert.get("hydraulic_test_chart_url") or (detail.get("hydraulic_test_chart") or {}).get("file_url")
+
+    y = _section_title(c, "Resumen del ensayo", y)
+    rows = [
+        [_p("Elemento", PB), _p(cert.get("element")), _p("Serie", PB), _p(cert.get("serial_number"))],
+        [_p("Resultado", PB), _p(cert.get("trial_result")), _p("Aprobado", PB), _p("SI" if cert.get("approved_result") else "NO")],
+        [_p("Frecuencia", PB), _p(f"{cert.get('test_frequency_months') or ''} meses".strip()), _p("Vencimiento", PB), _p(_date(cert.get("expiration_date")))],
+    ]
+    y -= _table(c, rows, MARGIN_X, y, [35 * mm, 70 * mm, 34 * mm, CONTENT_W - 139 * mm]) + 6 * mm
+
+    if cert.get("approved_result"):
+        _badge(c, MARGIN_X, y - 7.5 * mm, "APROBADO", "green")
+    else:
+        _badge(c, MARGIN_X, y - 7.5 * mm, "NO APROBADO", "red")
+    if cert.get("requires_hydraulic_chart"):
+        _badge(c, MARGIN_X + 38 * mm, y - 7.5 * mm, "GRÁFICO REQUERIDO", "amber")
+    y -= 13 * mm
+
+    if template == "pressure_gauge":
+        y = _draw_metrology_table(c, metrology, y)
+    elif template == "pressure_head_sensor":
+        y = _draw_sensor_loop_table(c, sensor_loop, y)
+    elif template == "relief_valve_set":
+        y = _draw_relief_section(c, relief, y)
+        if y > 87 * mm:
+            y = _draw_simple_pressure_table(c, tests, y)
+    elif template == "hydrostatic_line":
+        y = _draw_hydrostatic_section(c, hydro, chart_url, y)
+        if y > 87 * mm:
+            y = _draw_simple_pressure_table(c, tests, y)
+    else:
+        y = _draw_simple_pressure_table(c, tests, y)
+
+    if y > 73 * mm:
+        y = _draw_text_box(c, "Comentarios finales", cert.get("final_comments"), y, 12 * mm, "Sin comentarios finales.")
+
+    _draw_emission_control(c, cert, max(y, 70 * mm))
     _draw_signature_area(c, cert, 24 * mm)
     _draw_footer(c)
 
@@ -490,21 +617,21 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, tests: list[dict]):
 def generate_certificate_pdf(cert_id: str, user) -> str:
     detail = certificate_detail(cert_id, user)
     cert = detail["certificate"]
-    tests = detail.get("test_rows", [])
-    patterns = detail.get("patterns", [])
+    patterns = detail.get("patterns", []) or []
 
     filename = f"{_safe_filename(cert['certificate_number'])}.pdf"
     filepath = CERT_DIR / filename
     public_url = f"{settings.PUBLIC_BASE_URL}/static/certificates/{filename}"
 
     c = canvas.Canvas(str(filepath), pagesize=A4)
-    c.setTitle(f"Certificado {cert.get('certificate_number')}")
+    title = _display(cert.get("document_type"), "Certificado técnico")
+    c.setTitle(f"{title} {cert.get('certificate_number')}")
     c.setAuthor(settings.COMPANY_NAME)
-    c.setSubject(_clean(cert.get("document_type"), "Certificado de Calibración"))
+    c.setSubject(title)
 
     _draw_page_1(c, cert, patterns)
     c.showPage()
-    _draw_page_2(c, cert, tests)
+    _draw_page_2(c, cert, detail)
     c.save()
 
     execute("update certificates set pdf_url=%s where id=%s returning id", [public_url, cert_id])
@@ -517,6 +644,6 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     )
     execute(
         "select add_certificate_audit(%s,%s,'pdf_generated',%s,null,null)",
-        [cert_id, user["id"], "PDF moderno formal generado con logo más arriba, QR de validación de autenticidad y layout compacto."],
+        [cert_id, user["id"], "PDF generado con secciones técnicas según plantilla MD, QR de autenticidad y datos completos del ensayo."],
     )
     return public_url

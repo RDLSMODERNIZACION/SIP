@@ -126,6 +126,13 @@ export async function updateCertificate(id: string, payload: Partial<Certificate
   });
 }
 
+export async function deleteCertificate(id: string, hard = true) {
+  const query = hard ? "?hard=true" : "";
+  return apiFetch<{ ok: boolean; deleted_id?: string; id?: string }>(`/certificates/${id}${query}`, {
+    method: "DELETE",
+  });
+}
+
 export async function submitCertificate(id: string) {
   return apiFetch<CertificateDetail>(`/certificates/${id}/submit`, { method: "POST" });
 }
@@ -156,13 +163,37 @@ export async function generatePdf(id: string) {
   return apiFetch<{ pdf_url: string }>(`/certificates/${id}/generate-pdf`, { method: "POST" });
 }
 
-export async function uploadHydraulicChart(id: string, file: File) {
+
+export type HydraulicTestChartResponse = {
+  file_url?: string | null;
+  file_type?: string | null;
+  filename?: string | null;
+  ok?: boolean;
+};
+
+export async function getHydraulicTestChart(id: string) {
+  return apiFetch<HydraulicTestChartResponse>(`/certificates/${id}/hydraulic-test-chart`);
+}
+
+export async function uploadHydraulicTestChart(id: string, file: File) {
   const formData = new FormData();
   formData.append("file", file);
-  return apiFetch<{ file_url: string; file_type: string }>(`/certificates/${id}/hydraulic-chart`, {
+  return apiFetch<HydraulicTestChartResponse>(`/certificates/${id}/hydraulic-test-chart`, {
     method: "POST",
     body: formData,
   });
+}
+
+export async function deleteHydraulicTestChart(id: string) {
+  return apiFetch<HydraulicTestChartResponse>(`/certificates/${id}/hydraulic-test-chart`, {
+    method: "DELETE",
+  });
+}
+
+// Alias viejo: algunas pantallas históricas usaban /hydraulic-chart.
+// Lo dejamos apuntando al endpoint nuevo para no romper imports existentes.
+export async function uploadHydraulicChart(id: string, file: File) {
+  return uploadHydraulicTestChart(id, file);
 }
 
 export async function validateCertificate(hash: string) {

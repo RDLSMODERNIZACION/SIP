@@ -3,6 +3,7 @@ import type { Certificate, CertificateDetail, PublicCertificateValidation } from
 
 function cleanPayload<T>(value: T): T {
   if (Array.isArray(value)) return value.map((item) => cleanPayload(item)) as T;
+  if (value instanceof FormData) return value;
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
@@ -13,11 +14,34 @@ function cleanPayload<T>(value: T): T {
   return value;
 }
 
+export type CertificateTemplate = {
+  code: string;
+  name: string;
+  document_type?: string | null;
+  default_method?: string | null;
+  default_frequency_months?: number | null;
+  requires_hydraulic_chart?: boolean | null;
+  active?: boolean;
+};
+
 export type CertificateCreatePayload = {
   certificate_number: string;
   certificate_code?: string;
   certificate_revision?: string;
   certificate_validity?: string;
+  document_type?: string | null;
+  template_type?: string | null;
+  md_required?: boolean | null;
+  requires_hydraulic_chart?: boolean | null;
+  previous_certificate_id?: string | null;
+  previous_certificate_number?: string | null;
+  reissue_reason?: string | null;
+  responsible_name?: string | null;
+  responsible_license?: string | null;
+  asset_unit_code?: string | null;
+  seal_number?: string | null;
+  test_medium?: string | null;
+  ambient_temperature?: string | null;
   client_id: string;
   equipment_id?: string | null;
   purchase_order?: string | null;
@@ -52,6 +76,10 @@ export type CertificateCreatePayload = {
     observations?: string | null;
   }>;
   pattern_usages?: Array<{ pattern_id: string }>;
+  metrology_results?: Array<Record<string, unknown>>;
+  sensor_loop_results?: Array<Record<string, unknown>>;
+  relief_valve_result?: Record<string, unknown> | null;
+  hydrostatic_result?: Record<string, unknown> | null;
 };
 
 export async function getCertificates(params?: { status?: string; client_id?: string; q?: string }) {
@@ -65,6 +93,10 @@ export async function getCertificates(params?: { status?: string; client_id?: st
 
 export async function getCertificateById(id: string) {
   return apiFetch<CertificateDetail>(`/certificates/${id}`);
+}
+
+export async function getCertificateTemplates() {
+  return apiFetch<CertificateTemplate[]>("/certificates/templates");
 }
 
 export async function getNextCertificateNumber(params?: { prefix?: string; year?: number }) {
@@ -85,6 +117,13 @@ export async function createCertificate(payload: CertificateCreatePayload) {
 export async function createCertificatePending(payload: CertificateCreatePayload) {
   const created = await createCertificate(payload);
   return submitCertificate(created.certificate.id);
+}
+
+export async function updateCertificate(id: string, payload: Partial<CertificateCreatePayload>) {
+  return apiFetch<CertificateDetail>(`/certificates/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(cleanPayload(payload)),
+  });
 }
 
 export async function submitCertificate(id: string) {
@@ -115,6 +154,15 @@ export async function generateQr(id: string) {
 
 export async function generatePdf(id: string) {
   return apiFetch<{ pdf_url: string }>(`/certificates/${id}/generate-pdf`, { method: "POST" });
+}
+
+export async function uploadHydraulicChart(id: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<{ file_url: string; file_type: string }>(`/certificates/${id}/hydraulic-chart`, {
+    method: "POST",
+    body: formData,
+  });
 }
 
 export async function validateCertificate(hash: string) {

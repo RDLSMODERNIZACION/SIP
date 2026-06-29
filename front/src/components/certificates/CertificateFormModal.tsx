@@ -477,15 +477,15 @@ export function CertificateFormModal({
     const preferredUnit = textValue(catUnits.find((u) => textValue(u) === "PSI") || catUnits[0]) || baseForm.measurement_unit || "PSI";
     const defaultRows = catPressureRows.length > 0
       ? catPressureRows.map((row, index) => {
-          const fallback = baseForm.test_rows?.[index] || {};
+          const fallback = baseForm.test_rows?.[index];
           return {
-            row_order: Number(row.row_order || fallback.row_order || index + 1),
-            pressure_label: textValue(row) || fallback.pressure_label || `PRESIÓN DE PRUEBA N°${index}`,
-            range_value: parseNullableNumber(fallback.range_value),
+            row_order: Number(row.row_order || fallback?.row_order || index + 1),
+            pressure_label: textValue(row) || fallback?.pressure_label || `PRESIÓN DE PRUEBA N°${index}`,
+            range_value: parseNullableNumber(fallback?.range_value),
             unit: preferredUnit,
-            acceptance_criteria: fallback.acceptance_criteria || (index === 0 ? undefined : "SIN ERROR"),
-            result: fallback.result || (index === 0 ? undefined : "POSITIVO"),
-            observations: fallback.observations || (index === 0 ? undefined : "OK"),
+            acceptance_criteria: fallback?.acceptance_criteria || (index === 0 ? undefined : "SIN ERROR"),
+            result: fallback?.result || (index === 0 ? undefined : "POSITIVO"),
+            observations: fallback?.observations || (index === 0 ? undefined : "OK"),
           };
         })
       : baseForm.test_rows;

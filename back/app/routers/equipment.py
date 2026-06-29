@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg import errors
 from ..auth import require_roles, get_current_user
 from ..models import EquipmentCreate, EquipmentUpdate
 from ..db import fetch_one, fetch_all, execute
@@ -18,8 +19,8 @@ def list_equipment(client_id: str | None = None, q: str | None = None, user=Depe
         params.append(client_id)
     if q:
         like = f"%{q}%"
-        where.append("(name ilike %s or serial_number ilike %s or brand ilike %s or element ilike %s)")
-        params.extend([like, like, like, like])
+        where.append("(e.name ilike %s or e.serial_number ilike %s or e.brand ilike %s or e.element ilike %s or e.location ilike %s)")
+        params.extend([like, like, like, like, like])
     sql = "select e.*, c.name as client_name, c.cuit as client_cuit from equipment e join clients c on c.id=e.client_id"
     if where:
         sql += " where " + " and ".join(where)
@@ -49,12 +50,38 @@ def get_equipment(equipment_id: str, user=Depends(get_current_user)):
 def update_equipment(equipment_id: str, payload: EquipmentUpdate, user=Depends(require_roles("admin", "certificador"))):
     data = payload.model_dump(exclude_unset=True)
     if not data:
-        return fetch_one("select * from equipment where id=%s", [equipment_id])
+        row = fetch_one("select * from equipment where id=%s", [equipment_id])
+        if not row:
+            raise HTTPException(status_code=404, detail="Equipo no encontrado")
+        return row
     sets = ", ".join([f"{k}=%s" for k in data.keys()])
     row = execute(f"update equipment set {sets} where id=%s returning *", list(data.values()) + [equipment_id])
     if not row:
         raise HTTPException(status_code=404, detail="Equipo no encontrado")
     return row
+
+
+@router.delete("/{equipment_id}")
+def delete_equipment(equipment_id: str, hard: bool = True, user=Depends(require_roles("admin"))):
+    existing = fetch_one("select id from equipment where id=%s", [equipment_id])
+    if not existing:
+        raise HTTPException(status_code=404, detail="Equipo no encontrado")
+
+    if not hard:
+        execute("update equipment set active=false where id=%s returning id", [equipment_id])
+        return {"ok": True, "deleted": False, "mode": "deactivated"}
+
+    # Los certificados conservan snapshots históricos de equipo. Para permitir borrar
+    # la referencia sin perder trazabilidad, se desvincula equipment_id antes de borrar.
+    execute("update certificates set equipment_id=null where equipment_id=%s returning id", [equipment_id])
+    try:
+        execute("delete from equipment where id=%s returning id", [equipment_id])
+    except errors.ForeignKeyViolation:
+        raise HTTPException(
+            status_code=409,
+            detail="No se pudo eliminar el equipo porque tiene relaciones activas. Desactivelo o revise sus vínculos.",
+        )
+    return {"ok": True, "deleted": True, "mode": "hard"}
 
 
 @router.get("/{equipment_id}/certificates")

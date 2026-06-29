@@ -76,10 +76,10 @@ export type CertificateCreatePayload = {
     observations?: string | null;
   }>;
   pattern_usages?: Array<{ pattern_id: string }>;
-  metrology_results?: Array<Record<string, unknown>>;
-  sensor_loop_results?: Array<Record<string, unknown>>;
-  relief_valve_result?: Record<string, unknown> | null;
-  hydrostatic_result?: Record<string, unknown> | null;
+  metrology_results?: Array<any>;
+  sensor_loop_results?: Array<any>;
+  relief_valve_result?: any | null;
+  hydrostatic_result?: any | null;
 };
 
 export async function getCertificates(params?: { status?: string; client_id?: string; q?: string }) {

@@ -9,8 +9,8 @@ import { Field, inputClass } from "@/src/components/ui/Field";
 export default function LoginPage() {
   const router = useRouter();
   const { user, login } = useAuth();
-  const [email, setEmail] = useState("admin@sip.com");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("nombre@tuempresa.com");
+  const [password, setPassword] = useState("contraseña");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,9 +42,9 @@ export default function LoginPage() {
             Emisión, aprobación, control de vencimientos, trazabilidad de patrones y validación pública por QR.
           </p>
           <div className="mt-10 grid gap-3 text-sm text-slate-300">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Administrador: gestión completa del sistema.</div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Certificador: carga técnica y envío a aprobación.</div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Cliente: consulta de certificados vigentes y vencidos.</div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Gestión completa del sistema.</div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Alertar certificados por vencer</div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Consulta de certificados vigentes y vencidos.</div>
           </div>
         </div>
         <div className="p-8 md:p-10">

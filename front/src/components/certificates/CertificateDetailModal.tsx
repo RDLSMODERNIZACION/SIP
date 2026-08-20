@@ -41,8 +41,6 @@ const TEMPLATE_LABELS: Record<string, string> = {
   general_pressure: "Ensayo general de presión",
 };
 
-const HYDRAULIC_REQUIRED_TEMPLATES = new Set(["relief_valve_set", "hydrostatic_line"]);
-
 function valueOrDash(value: unknown) {
   if (value === null || value === undefined || value === "") return "—";
   return String(value);
@@ -303,7 +301,7 @@ export function CertificateDetailModal({
   const isClient = hasRole("cliente");
   const templateType = String((c as any).template_type || "general_pressure");
   const templateLabel = TEMPLATE_LABELS[templateType] || valueOrDash(templateType);
-  const requiresHydraulicChart = Boolean((c as any).requires_hydraulic_chart || HYDRAULIC_REQUIRED_TEMPLATES.has(templateType));
+  const includesHydraulicChart = Boolean((c as any).requires_hydraulic_chart);
   const mdRequired = Boolean((c as any).md_required);
 
   const metrologyRows = detail?.metrology_results || [];
@@ -375,18 +373,13 @@ export function CertificateDetailModal({
               </div>
             </section>
 
-            {(mdRequired || requiresHydraulicChart || templateType !== "general_pressure") ? (
+            {(mdRequired || includesHydraulicChart || templateType !== "general_pressure") ? (
               <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5">
                 <h4 className="font-bold text-slate-950">Requisitos técnicos aplicados</h4>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <Info label="Gráfico hidráulico" value={requiresHydraulicChart ? "Obligatorio para aprobar" : "No obligatorio"} />
-                  <Info label="Estado del gráfico" value={hydraulicChart?.file_url ? "Cargado" : requiresHydraulicChart ? "Pendiente" : "—"} />
+                  <Info label="Gráfico hidráulico" value="Opcional" />
+                  <Info label="Estado del gráfico" value={hydraulicChart?.file_url ? "Cargado" : "No cargado"} />
                 </div>
-                {requiresHydraulicChart && !hydraulicChart?.file_url ? (
-                  <p className="mt-3 rounded-xl bg-white p-3 text-sm text-amber-900">
-                    Esta plantilla requiere adjuntar el gráfico/carta de prueba hidráulica antes de aprobar.
-                  </p>
-                ) : null}
               </section>
             ) : null}
 
@@ -502,8 +495,8 @@ export function CertificateDetailModal({
                     Ver gráfico prueba hidráulica
                   </a>
                 ) : (
-                  <p className={`rounded-xl p-3 text-sm ${requiresHydraulicChart ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-500"}`}>
-                    {requiresHydraulicChart ? "Pendiente: esta plantilla requiere gráfico/carta de prueba hidráulica." : "Sin gráfico de prueba hidráulica cargado."}
+                  <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">
+                    Sin gráfico de prueba hidráulica cargado. Este adjunto es opcional.
                   </p>
                 )}
 

@@ -104,7 +104,7 @@ def template_requires_hydraulic_chart(template_type: str | None) -> bool:
 
 def apply_client_requirements(data: dict):
     # Estas reglas se calculan siempre en backend. El frontend ya no decide manualmente
-    # si aplica MD o si el gráfico/carta hidráulica es obligatorio.
+    # si aplica MD. El gráfico/carta hidráulica es siempre un adjunto opcional.
     client_id = str(data.get("client_id") or "")
     template_type = data.get("template_type") or "general_pressure"
 
@@ -114,18 +114,12 @@ def apply_client_requirements(data: dict):
     data["test_frequency_months"] = data.get("test_frequency_months") or DEFAULT_FREQUENCY_MONTHS
 
     data["md_required"] = is_md_client(client_id)
-    # El gráfico/carta hidráulica se fuerza para plantillas técnicas específicas.
-    # En ensayo general se permite que el usuario lo marque manualmente para emitir ANEXO A.
-    if template_type == "general_pressure":
-        data["requires_hydraulic_chart"] = bool(data.get("requires_hydraulic_chart"))
-    else:
-        data["requires_hydraulic_chart"] = template_requires_hydraulic_chart(template_type)
+    # Se conserva la elección para incluir el ANEXO A, pero nunca se fuerza por plantilla.
+    data["requires_hydraulic_chart"] = bool(data.get("requires_hydraulic_chart"))
 
     req = get_client_template_requirement(client_id, template_type)
     if req:
         data["md_required"] = True
-        if req.get("requires_hydraulic_chart"):
-            data["requires_hydraulic_chart"] = True
         if req.get("frequency_months"):
             data["test_frequency_months"] = req.get("frequency_months")
 
@@ -194,11 +188,6 @@ def save_specific_results_tx(cur, cert_id, data: dict, replace=True):
 
 def validate_certificate_before_approval(cert_id: str, cert: dict):
     template_type = cert.get("template_type") or "general_pressure"
-
-    if cert.get("requires_hydraulic_chart") or template_type in ("relief_valve_set", "hydrostatic_line"):
-        chart = _get_hydraulic_chart_row(cert_id)
-        if not chart:
-            raise HTTPException(status_code=400, detail="Este tipo de certificado requiere adjuntar el gráfico/carta de prueba hidráulica antes de aprobar.")
 
     if template_type == "pressure_gauge":
         rows = fetch_all("select * from certificate_metrology_results where certificate_id=%s", [cert_id])

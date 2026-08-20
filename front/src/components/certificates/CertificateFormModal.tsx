@@ -32,8 +32,8 @@ const MD_DEFAULT_FREQUENCY_MONTHS = 12;
 const TEMPLATE_HELP: Record<string, string> = {
   pressure_gauge: "Manómetro: debe cargar valores numéricos patrón vs instrumento, error e incertidumbre. No usar solo OK/SIN ERROR.",
   pressure_head_sensor: "Cabeza de presión/sensor: debe cargar presión aplicada, señal mA/V y lectura final.",
-  relief_valve_set: "Válvula relief/PRV: requiere apertura/seteo, cierre, hermeticidad, precinto y gráfico/carta de prueba.",
-  hydrostatic_line: "Línea/manguera/brida/conexión: requiere parámetros hidrostáticos y gráfico/carta de presión vs tiempo.",
+  relief_valve_set: "Válvula relief/PRV: requiere apertura/seteo, cierre, hermeticidad y precinto. El gráfico/carta de prueba es opcional.",
+  hydrostatic_line: "Línea/manguera/brida/conexión: requiere parámetros hidrostáticos. El gráfico/carta de presión vs tiempo es opcional.",
 };
 
 type SuggestionItem = {
@@ -644,8 +644,8 @@ export function CertificateFormModal({
   }
 
   function templateForcesHydraulicChart(templateCode: string) {
-    const template = templates.find((item) => item.code === templateCode);
-    return Boolean(template?.requires_hydraulic_chart || ["relief_valve_set", "hydrostatic_line"].includes(templateCode));
+    void templateCode;
+    return false;
   }
 
   function effectiveRequiresHydraulicChart(templateCode = String(form.template_type || "general_pressure"), manualValue = Boolean(form.requires_hydraulic_chart)) {
@@ -667,7 +667,7 @@ export function CertificateFormModal({
 
     return {
       md_required: md,
-      requires_hydraulic_chart: templateForcesHydraulicChart(templateCode) || (templateCode === "general_pressure" ? Boolean(form.requires_hydraulic_chart) : false),
+      requires_hydraulic_chart: Boolean(form.requires_hydraulic_chart),
       test_frequency_months: frequency,
       expiration_date: addMonthsIso(form.calibration_date || todayIso(), frequency),
     };
@@ -959,15 +959,14 @@ export function CertificateFormModal({
                   disabled={templateForcesHydraulicChart(String(form.template_type || "general_pressure"))}
                   onChange={(e) => update("requires_hydraulic_chart", e.target.checked)}
                 />
-                <span>{templateForcesHydraulicChart(String(form.template_type || "general_pressure")) ? "Obligatorio por plantilla" : "Requerir Anexo A"}</span>
+                <span>Incluir Anexo A (opcional)</span>
               </label>
             </Field>
           </div>
           {(() => {
             const info = getAutomaticRequirementInfo();
             const messages: string[] = [];
-            if (info.chartForced) messages.push("Esta plantilla requiere gráfico/carta de prueba hidráulica antes de aprobar.");
-            if (!info.chartForced && info.chartRequired) messages.push("Este certificado se emitirá con ANEXO A: gráfico/carta de prueba hidráulica como adjunto técnico obligatorio.");
+            if (info.chartRequired) messages.push("Este certificado incluirá el ANEXO A si se carga el gráfico/carta de prueba hidráulica. El archivo no es necesario para aprobar.");
             if (form.template_type && TEMPLATE_HELP[String(form.template_type)]) messages.push(TEMPLATE_HELP[String(form.template_type)]);
             return messages.length > 0 ? (
               <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">

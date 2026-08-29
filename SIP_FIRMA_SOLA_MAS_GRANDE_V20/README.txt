@@ -1,0 +1,1 @@
+V20 agranda la firma sola en ambos recuadros. Aumenta tamaño y ancho máximo manteniéndola centrada.

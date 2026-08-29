@@ -429,20 +429,20 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
         c.setLineWidth(0.45)
         c.line(xx + 14 * mm, y + 13 * mm, xx + box_w - 14 * mm, y + 13 * mm)
 
-        # Firma sola, más grande y centrada.
+        # Firma sola, grande y centrada.
         if firma_path.exists():
             try:
                 firma = ImageReader(str(firma_path))
                 fw, fh = firma.getSize()
-                target_h = 13.5 * mm
+                target_h = 9.5 * mm
                 target_w = target_h * fw / fh
-                max_w = box_w * 0.62
+                max_w = box_w * 0.48
                 if target_w > max_w:
                     target_w = max_w
                     target_h = target_w * fh / fw
 
                 firma_x = xx + (box_w - target_w) / 2
-                firma_y = y + 5.2 * mm
+                firma_y = y + 6.0 * mm
                 c.drawImage(
                     str(firma_path),
                     firma_x,
@@ -459,9 +459,9 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
         c.setFont("Helvetica", 5.6)
 
         if i == 0:
-            c.drawCentredString(xx + box_w / 2, y + 2.2 * mm, responsible)
+            c.drawCentredString(xx + box_w / 2, y + 2.8 * mm, responsible)
         else:
-            c.drawCentredString(xx + box_w / 2, y + 2.2 * mm, f"Certificado N° {certificate_number}")
+            c.drawCentredString(xx + box_w / 2, y + 2.8 * mm, f"Certificado N° {certificate_number}")
 
 
 def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h: float):

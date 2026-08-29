@@ -1,0 +1,1 @@
+V23 agrega un tercer recuadro en la parte inferior del certificado PDF: 'SELLO DE LABORATORIO', usando sólo la imagen del sello. Mantiene las dos firmas en los recuadros anteriores.

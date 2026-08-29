@@ -303,7 +303,7 @@ export function CertificateDetailModal({
   const isClient = hasRole("cliente");
   const templateType = String((c as any).template_type || "general_pressure");
   const templateLabel = TEMPLATE_LABELS[templateType] || valueOrDash(templateType);
-  const requiresHydraulicChart = false;
+  const requiresHydraulicChart = Boolean((c as any).requires_hydraulic_chart || HYDRAULIC_REQUIRED_TEMPLATES.has(templateType));
   const mdRequired = Boolean((c as any).md_required);
 
   const metrologyRows = detail?.metrology_results || [];
@@ -379,7 +379,7 @@ export function CertificateDetailModal({
               <section className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5">
                 <h4 className="font-bold text-slate-950">Requisitos técnicos aplicados</h4>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <Info label="Gráfico hidráulico" value="No obligatorio" />
+                  <Info label="Gráfico hidráulico" value={requiresHydraulicChart ? "Obligatorio para aprobar" : "No obligatorio"} />
                   <Info label="Estado del gráfico" value={hydraulicChart?.file_url ? "Cargado" : requiresHydraulicChart ? "Pendiente" : "—"} />
                 </div>
                 {requiresHydraulicChart && !hydraulicChart?.file_url ? (
@@ -483,6 +483,45 @@ export function CertificateDetailModal({
                   </Button>
                 ) : null}
                 {!isClient && c.validation_hash ? <a className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50" href={`/validar/${c.validation_hash}`} target="_blank">Ver validación pública</a> : null}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate-200 p-5">
+              <h4 className="font-bold text-slate-950">Adjuntos técnicos</h4>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Gráfico/carta de prueba hidráulica asociado al certificado. El archivo debe ser PDF.
+              </p>
+
+              <div className="mt-4 grid gap-3">
+                {hydraulicChart?.file_url ? (
+                  <a
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-center text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    href={normalizeFileUrl(hydraulicChart.file_url)}
+                    target="_blank"
+                  >
+                    Ver gráfico prueba hidráulica
+                  </a>
+                ) : (
+                  <p className={`rounded-xl p-3 text-sm ${requiresHydraulicChart ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-500"}`}>
+                    {requiresHydraulicChart ? "Pendiente: esta plantilla requiere gráfico/carta de prueba hidráulica." : "Sin gráfico de prueba hidráulica cargado."}
+                  </p>
+                )}
+
+                {canManageHydraulicChart ? (
+                  <Button
+                    variant="secondary"
+                    disabled={uploadingChart}
+                    onClick={() => hydraulicInputRef.current?.click()}
+                  >
+                    {hydraulicChart ? "Reemplazar gráfico prueba hidráulica" : "Subir gráfico prueba hidráulica"}
+                  </Button>
+                ) : null}
+
+                {canManageHydraulicChart && hydraulicChart ? (
+                  <Button variant="danger" disabled={uploadingChart} onClick={handleDeleteHydraulicChart}>
+                    Eliminar gráfico prueba hidráulica
+                  </Button>
+                ) : null}
               </div>
             </section>
 

@@ -763,7 +763,10 @@ def _draw_annex_a_page(c: canvas.Canvas, cert: dict, detail: dict):
 
 def generate_certificate_pdf(cert_id: str, user) -> str:
     detail = certificate_detail(cert_id, user)
-    cert = detail["certificate"]
+    cert = detail["certificate"]
+    # SIN GRAFICOS V4:
+    # incluso certificados viejos se generan sin anexo hidráulico.
+    cert["requires_hydraulic_chart"] = False
     patterns = detail.get("patterns", []) or []
 
     filename = f"{_safe_filename(cert['certificate_number'])}.pdf"

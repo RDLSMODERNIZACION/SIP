@@ -1,0 +1,1 @@
+V21: firma sola mucho más grande y desplazada hacia arriba en ambos recuadros.

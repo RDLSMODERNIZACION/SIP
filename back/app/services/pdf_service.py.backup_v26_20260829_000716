@@ -433,13 +433,16 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
         c.setLineWidth(0.45)
         c.line(xx + 14 * mm, y + 13 * mm, xx + box_w - 14 * mm, y + 13 * mm)
 
+        # Recuadro izquierdo: usa la firma ACTUAL guardada en certificate_assets.
         if i == 0 and firma_path.exists():
             try:
                 firma = ImageReader(str(firma_path))
                 fw, fh = firma.getSize()
+
                 target_h = 19.5 * mm
                 target_w = target_h * fw / fh
                 max_w = box_w * 0.78
+
                 if target_w > max_w:
                     target_w = max_w
                     target_h = target_w * fh / fw
@@ -459,13 +462,16 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
             except Exception:
                 pass
 
+        # Recuadro derecho: usa el sello ACTUAL guardado en certificate_assets.
         if i == 1 and sello_path.exists():
             try:
                 sello = ImageReader(str(sello_path))
                 sw, sh = sello.getSize()
+
                 target_h = 17.5 * mm
                 target_w = target_h * sw / sh
                 max_w = box_w * 0.42
+
                 if target_w > max_w:
                     target_w = max_w
                     target_h = target_w * sh / sw
@@ -489,9 +495,17 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
         c.setFont("Helvetica", 5.5)
 
         if i == 0:
-            c.drawCentredString(xx + box_w / 2, y + 1.9 * mm, f"Certificado N° {certificate_number}")
+            c.drawCentredString(
+                xx + box_w / 2,
+                y + 1.9 * mm,
+                f"Certificado N° {certificate_number}",
+            )
         else:
-            c.drawCentredString(xx + box_w / 2, y + 1.9 * mm, "Sello institucional")
+            c.drawCentredString(
+                xx + box_w / 2,
+                y + 1.9 * mm,
+                "Sello institucional",
+            )
 
 
 def _draw_qr_card(c: canvas.Canvas, cert: dict, x: float, y: float, w: float, h: float):

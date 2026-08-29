@@ -828,7 +828,7 @@ function effectiveRequiresHydraulicChart(templateCode = String(form.template_typ
         document_type: normalizeText(form.document_type) || "Certificado de Calibración",
         template_type: normalizeText(form.template_type) || "general_pressure",
         md_required: isMdClient(form.client_id),
-        requires_hydraulic_chart: false,
+        requires_hydraulic_chart: false, Boolean(form.requires_hydraulic_chart)),
         responsible_name: normalizeText(form.responsible_name),
         responsible_license: normalizeText(form.responsible_license),
         asset_unit_code: normalizeText(form.asset_unit_code),

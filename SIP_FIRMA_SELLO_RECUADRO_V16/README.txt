@@ -1,0 +1,1 @@
+V16: la causa real era que las imágenes se dibujaban sólo en página 1, mientras que el recuadro de firma está en página 2. Ahora se dibujan dentro de _draw_signature_area.

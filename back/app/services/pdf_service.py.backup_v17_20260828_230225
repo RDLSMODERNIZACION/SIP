@@ -414,18 +414,14 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
         c.setFillColor(WHITE)
         _stroke(c, LINE, 0.45)
         c.roundRect(xx, y, box_w, box_h, 2 * mm, stroke=1, fill=1)
-
         c.setFillColor(LIGHTER)
         c.roundRect(xx, y + box_h - 7 * mm, box_w, 7 * mm, 2 * mm, stroke=0, fill=1)
-
         c.setFillColor(SLATE)
         c.setFont("Helvetica-Bold", 6.7)
         c.drawCentredString(xx + box_w / 2, y + box_h - 4.8 * mm, title.upper())
-
         c.setStrokeColor(LINE)
         c.setLineWidth(0.45)
         c.line(xx + 14 * mm, y + 13 * mm, xx + box_w - 14 * mm, y + 13 * mm)
-
         c.setFillColor(MUTED)
         c.setFont("Helvetica", 5.6)
 
@@ -437,22 +433,19 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
         if i == 1:
             firma_path = _certificate_asset_path(FOOTER_LOGO_FIRMA)
             sello_path = _certificate_asset_path(FOOTER_LOGO_SELLO)
-            area_y = y + 4.3 * mm
-            area_h = 8.5 * mm
-            left_area_x = xx + 12 * mm
-            right_area_x = xx + box_w / 2 + 4 * mm
+            image_y = y + 4.8 * mm
 
             if firma_path.exists():
                 try:
                     firma = ImageReader(str(firma_path))
                     fw, fh = firma.getSize()
-                    target_h = area_h
+                    target_h = 8.2 * mm
                     target_w = target_h * fw / fh
-                    max_w = box_w * 0.38
+                    max_w = box_w * 0.46
                     if target_w > max_w:
                         target_w = max_w
                         target_h = target_w * fh / fw
-                    c.drawImage(str(firma_path), left_area_x, area_y, width=target_w, height=target_h, preserveAspectRatio=True, mask="auto")
+                    c.drawImage(str(firma_path), xx + 10 * mm, image_y, width=target_w, height=target_h, preserveAspectRatio=True, mask="auto")
                 except Exception:
                     pass
 
@@ -460,13 +453,13 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
                 try:
                     sello = ImageReader(str(sello_path))
                     sw, sh = sello.getSize()
-                    target_h = area_h + 1.5 * mm
+                    target_h = 9.5 * mm
                     target_w = target_h * sw / sh
-                    max_w = box_w * 0.22
+                    max_w = box_w * 0.26
                     if target_w > max_w:
                         target_w = max_w
                         target_h = target_w * sh / sw
-                    c.drawImage(str(sello_path), right_area_x, area_y - 0.5 * mm, width=target_w, height=target_h, preserveAspectRatio=True, mask="auto")
+                    c.drawImage(str(sello_path), xx + box_w - target_w - 10 * mm, image_y - 0.5 * mm, width=target_w, height=target_h, preserveAspectRatio=True, mask="auto")
                 except Exception:
                     pass
 

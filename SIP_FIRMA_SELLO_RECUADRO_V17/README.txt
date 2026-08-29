@@ -1,0 +1,1 @@
+V17 corrige el margen blanco enorme de las imágenes. Las originales eran 2047x1176 y el contenido real ocupaba ~80x100 px; ahora se usan versiones recortadas y se dibujan dentro del recuadro derecho.

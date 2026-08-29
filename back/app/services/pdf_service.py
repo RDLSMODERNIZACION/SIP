@@ -55,6 +55,69 @@ PSUB = ParagraphStyle("PSUB", parent=P, fontSize=7.3, leading=8.7, textColor=MUT
 PCENTER = ParagraphStyle("PCENTER", parent=P, alignment=TA_CENTER)
 
 
+
+FOOTER_LOGO_FIRMA = "logo_firma.png"
+FOOTER_LOGO_SELLO = "logo_sello_sip.png"
+
+def _certificate_asset_path(filename: str) -> Path:
+    return Path(__file__).resolve().parent.parent / "static" / "certificate_assets" / filename
+
+def draw_certificate_footer_images(c):
+    try:
+        page_width, _ = c._pagesize
+        base_y = 18
+
+        left_path = _certificate_asset_path(FOOTER_LOGO_FIRMA)
+        right_path = _certificate_asset_path(FOOTER_LOGO_SELLO)
+
+        try:
+            c.saveState()
+            c.setLineWidth(0.6)
+            c.setStrokeColorRGB(0.82, 0.84, 0.88)
+            c.line(35, base_y + 42, page_width - 35, base_y + 42)
+            c.restoreState()
+        except Exception:
+            pass
+
+        if left_path.exists():
+            try:
+                img = ImageReader(str(left_path))
+                iw, ih = img.getSize()
+                target_h = 32
+                target_w = max(20, (iw / ih) * target_h)
+                c.drawImage(
+                    str(left_path),
+                    42,
+                    base_y,
+                    width=target_w,
+                    height=target_h,
+                    preserveAspectRatio=True,
+                    mask="auto",
+                )
+            except Exception:
+                pass
+
+        if right_path.exists():
+            try:
+                img = ImageReader(str(right_path))
+                iw, ih = img.getSize()
+                target_h = 40
+                target_w = max(24, (iw / ih) * target_h)
+                c.drawImage(
+                    str(right_path),
+                    page_width - target_w - 42,
+                    base_y - 3,
+                    width=target_w,
+                    height=target_h,
+                    preserveAspectRatio=True,
+                    mask="auto",
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _safe_filename(value: str) -> str:
     cleaned = (value or "certificado").strip().replace(" ", "_")
     for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
@@ -763,7 +826,8 @@ def _draw_annex_a_page(c: canvas.Canvas, cert: dict, detail: dict):
 
 def generate_certificate_pdf(cert_id: str, user) -> str:
     detail = certificate_detail(cert_id, user)
-    cert = detail["certificate"]
+    cert = detail["certificate"]
+
     # SIN GRAFICOS V4:
     # incluso certificados viejos se generan sin anexo hidráulico.
     cert["requires_hydraulic_chart"] = False
@@ -780,11 +844,14 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     c.setSubject(title)
 
     _draw_page_1(c, cert, patterns)
+    draw_certificate_footer_images(c)
     c.showPage()
     _draw_page_2(c, cert, detail)
     if cert.get("requires_hydraulic_chart"):
+        draw_certificate_footer_images(c)
         c.showPage()
         _draw_annex_a_page(c, cert, detail)
+    draw_certificate_footer_images(c)
     c.save()
 
     execute("update certificates set pdf_url=%s where id=%s returning id", [public_url, cert_id])

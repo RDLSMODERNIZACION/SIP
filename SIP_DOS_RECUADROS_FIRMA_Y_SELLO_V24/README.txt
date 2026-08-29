@@ -1,0 +1,1 @@
+V24 elimina 'Responsable del ensayo' y deja solo dos recuadros: 'Firma y sello del responsable' y 'Sello de laboratorio'.

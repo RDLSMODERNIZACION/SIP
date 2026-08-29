@@ -1,0 +1,1 @@
+V27 agranda 1,5x el sello del recuadro 'Sello de laboratorio'. No reemplaza imágenes; usa las actuales del proyecto.

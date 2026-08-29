@@ -403,6 +403,7 @@ def _badge(c: canvas.Canvas, x: float, y: float, text: str, tone: str = "green")
 def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
     x = MARGIN_X
     gap = 10 * mm
+    box_count = 2
     box_w = (CONTENT_W - gap) / 2
     box_h = 29 * mm
 
@@ -433,7 +434,7 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
         c.setLineWidth(0.45)
         c.line(xx + 14 * mm, y + 13 * mm, xx + box_w - 14 * mm, y + 13 * mm)
 
-        # Recuadro izquierdo: usa la firma ACTUAL guardada en certificate_assets.
+        # Primer recuadro: firma grande
         if i == 0 and firma_path.exists():
             try:
                 firma = ImageReader(str(firma_path))
@@ -462,7 +463,7 @@ def _draw_signature_area(c: canvas.Canvas, cert: dict, y: float):
             except Exception:
                 pass
 
-        # Recuadro derecho: usa el sello ACTUAL guardado en certificate_assets.
+        # Segundo recuadro: solo sello
         if i == 1 and sello_path.exists():
             try:
                 sello = ImageReader(str(sello_path))

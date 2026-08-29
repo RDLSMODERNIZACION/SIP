@@ -1,0 +1,1 @@
+V25 NO incluye ni copia imágenes. Usa exactamente las existentes en back/app/static/certificate_assets/logo_firma.png y logo_sello_sip.png. Esto evita que los ZIP anteriores vuelvan a pisar las nuevas imágenes sin fondo.

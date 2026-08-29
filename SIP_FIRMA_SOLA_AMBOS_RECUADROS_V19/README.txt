@@ -1,0 +1,1 @@
+V19 usa solamente la firma ya recortada. La dibuja grande y centrada en ambos recuadros del certificado.

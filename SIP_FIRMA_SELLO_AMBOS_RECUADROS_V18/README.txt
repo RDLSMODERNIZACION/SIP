@@ -1,0 +1,1 @@
+V18: firma arriba y sello debajo, centrados, en ambos recuadros: RESPONSABLE DEL ENSAYO y FIRMA Y SELLO DEL RESPONSABLE.

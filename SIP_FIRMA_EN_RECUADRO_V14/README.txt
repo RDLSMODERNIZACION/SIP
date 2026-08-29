@@ -1,0 +1,1 @@
+V14 corrige el SyntaxError de V13 y restaura automáticamente el backup V13 antes de aplicar.

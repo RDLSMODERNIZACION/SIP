@@ -1,0 +1,1 @@
+V15 corrige el error de .Count bajo Set-StrictMode usando @(...). Restaura backup V13 si existe, aplica el parche y valida sintaxis.

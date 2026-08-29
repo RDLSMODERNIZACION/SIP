@@ -1,0 +1,54 @@
+﻿param([string]$ProjectRoot = "")
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+function Resolve-Root([string]$Requested) {
+    $candidates = @()
+    if ($Requested) { $candidates += $Requested }
+    $candidates += (Get-Location).Path
+    $candidates += (Split-Path -Parent $PSScriptRoot)
+    foreach ($x in $candidates) {
+        if (-not $x) { continue }
+        $p = [IO.Path]::GetFullPath($x)
+        if (Test-Path "$p\back\app\services\pdf_service.py") { return $p }
+        $parent = Split-Path -Parent $p
+        if ($parent -and (Test-Path "$parent\back\app\services\pdf_service.py")) { return $parent }
+    }
+    throw "No encontré la raíz del proyecto SIP."
+}
+
+$root = Resolve-Root $ProjectRoot
+$pdfService = Join-Path $root "back\app\services\pdf_service.py"
+$assetsDir = Join-Path $root "back\app\static\certificate_assets"
+
+Write-Host "`n==> Proyecto detectado: $root" -ForegroundColor Cyan
+
+$backupCandidates = Get-ChildItem (Split-Path -Parent $pdfService) -File -Filter "pdf_service.py.backup_recuadro_firma_v13_*" | Sort-Object Name -Descending
+if ($backupCandidates.Count -gt 0) {
+    $restoreFrom = $backupCandidates[0].FullName
+    Write-Host "`n==> Restaurando backup V13" -ForegroundColor Cyan
+    Write-Host "   Fuente: $restoreFrom" -ForegroundColor White
+    Copy-Item $restoreFrom $pdfService -Force
+    Write-Host "   [OK] Restaurado" -ForegroundColor Green
+}
+
+$stamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$backup = "$pdfService.backup_v14_$stamp"
+Copy-Item $pdfService $backup -Force
+Write-Host "   [OK] Backup V14: $backup" -ForegroundColor Green
+
+New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
+Copy-Item (Join-Path $PSScriptRoot "logo_firma.png") (Join-Path $assetsDir "logo_firma.png") -Force
+Copy-Item (Join-Path $PSScriptRoot "logo_sello_sip.png") (Join-Path $assetsDir "logo_sello_sip.png") -Force
+
+& python (Join-Path $PSScriptRoot "patch_recuadro_firma_v14.py") $pdfService
+if ($LASTEXITCODE -ne 0) { throw "Falló el parche V14" }
+
+& python -m py_compile $pdfService
+if ($LASTEXITCODE -ne 0) { throw "pdf_service.py quedó con error de sintaxis" }
+
+Write-Host ""
+Write-Host "====================================================" -ForegroundColor Green
+Write-Host " FIRMA EN RECUADRO V14 APLICADA CORRECTAMENTE" -ForegroundColor Green
+Write-Host "====================================================" -ForegroundColor Green
+Write-Host "Regenerá el PDF y revisá el recuadro inferior derecho." -ForegroundColor Cyan

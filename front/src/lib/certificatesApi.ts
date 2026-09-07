@@ -14,6 +14,17 @@ function cleanPayload<T>(value: T): T {
   return value;
 }
 
+function normalizeCertificatePayload<T extends Partial<CertificateCreatePayload>>(payload: T): T {
+  if (!payload.test_rows) return payload;
+  return {
+    ...payload,
+    test_rows: payload.test_rows.map((row, index) => ({
+      ...row,
+      row_order: index + 1,
+    })),
+  } as T;
+}
+
 export type CertificateTemplate = {
   code: string;
   name: string;
@@ -110,7 +121,7 @@ export async function getNextCertificateNumber(params?: { prefix?: string; year?
 export async function createCertificate(payload: CertificateCreatePayload) {
   return apiFetch<CertificateDetail>("/certificates", {
     method: "POST",
-    body: JSON.stringify(cleanPayload(payload)),
+    body: JSON.stringify(cleanPayload(normalizeCertificatePayload(payload))),
   });
 }
 
@@ -122,7 +133,7 @@ export async function createCertificatePending(payload: CertificateCreatePayload
 export async function updateCertificate(id: string, payload: Partial<CertificateCreatePayload>) {
   return apiFetch<CertificateDetail>(`/certificates/${id}`, {
     method: "PATCH",
-    body: JSON.stringify(cleanPayload(payload)),
+    body: JSON.stringify(cleanPayload(normalizeCertificatePayload(payload))),
   });
 }
 

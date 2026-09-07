@@ -21,9 +21,23 @@ app = FastAPI(
     description="Backend para emisión, aprobación, trazabilidad, QR y PDF de certificados digitales.",
 )
 
+# Con credenciales habilitadas conviene declarar explícitamente los orígenes
+# permitidos. Si CORS_ORIGINS sigue en "*", usamos una lista segura que cubre
+# producción y desarrollo local.
+DEFAULT_CORS_ORIGINS = [
+    "https://sipinstrumentacion.com",
+    "https://www.sipinstrumentacion.com",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+cors_origins = settings.cors_origins_list
+if cors_origins == ["*"]:
+    cors_origins = DEFAULT_CORS_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

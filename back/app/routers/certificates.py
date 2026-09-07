@@ -17,6 +17,18 @@ class NextNumberResponse(BaseModel):
     next_sequence: int
 
 
+def normalize_test_row_order(payload):
+    """Garantiza row_order único y secuencial antes de guardar.
+
+    El catálogo puede contener órdenes históricos duplicados. La posición real
+    de las filas en el formulario es la fuente de verdad: 1, 2, 3, ...
+    """
+    rows = getattr(payload, "test_rows", None) or []
+    for index, row in enumerate(rows, start=1):
+        row.row_order = index
+    return payload
+
+
 @router.get("/templates")
 def list_templates(user=Depends(get_current_user)):
     return certificate_service.list_certificate_templates(user)
@@ -43,6 +55,7 @@ def list_certificates(
 
 @router.post("")
 def create_certificate(payload: CertificateCreate, user=Depends(require_roles("admin", "certificador", "aprobador"))):
+    normalize_test_row_order(payload)
     return certificate_service.create_certificate(payload, user)
 
 
@@ -57,6 +70,7 @@ def update_certificate(
     payload: CertificateUpdate,
     user=Depends(require_roles("admin", "certificador", "aprobador")),
 ):
+    normalize_test_row_order(payload)
     return certificate_service.update_certificate(cert_id, payload, user)
 
 

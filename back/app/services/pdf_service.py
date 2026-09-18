@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 from io import BytesIO
+from uuid import uuid4
 
 import qrcode
 from reportlab.lib import colors
@@ -886,7 +887,8 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
 
     filename = f"{_safe_filename(cert['certificate_number'])}.pdf"
     filepath = CERT_DIR / filename
-    public_url = f"{settings.PUBLIC_BASE_URL}/static/certificates/{filename}"
+    # Una URL nueva evita mostrar una copia en caché al regenerar el certificado.
+    public_url = f"{settings.PUBLIC_BASE_URL}/static/certificates/{filename}?v={uuid4().hex}"
 
     c = canvas.Canvas(str(filepath), pagesize=A4)
     title = _display(cert.get("document_type"), "Certificado técnico")

@@ -249,7 +249,7 @@ def _template_label(code: str | None) -> str:
 def _document_title(cert: dict, page_no: int) -> str:
     if page_no == 2:
         return "Registro técnico del ensayo"
-    if page_no == 3:
+    if page_no == 3 and cert.get("requires_hydraulic_chart"):
         return "ANEXO A"
     return _display(cert.get("document_type"), "Certificado técnico")
 
@@ -609,8 +609,8 @@ def _draw_patterns(c: canvas.Canvas, patterns: list[dict], y: float) -> float:
     return y - 7 * mm
 
 
-def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict]):
-    y = _draw_header(c, cert, 1, 3 if cert.get("requires_hydraulic_chart") else 2)
+def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict], total_pages: int = 2):
+    y = _draw_header(c, cert, 1, total_pages)
 
     y = _section_title(c, "Datos del cliente y documento", y)
     rows = [
@@ -687,7 +687,7 @@ def _draw_metrology_table(c: canvas.Canvas, rows_data: list[dict], y: float) -> 
         ])
     if len(rows) == 1:
         rows.append([_p("Sin registros", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS), _p("—", PS)])
-    th = _table(c, rows, MARGIN_X, y, [24 * mm, 20 * mm, 28 * mm, 31 * mm, 23 * mm, 25 * mm, 23 * mm, CONTENT_W - 174 * mm], header=True)
+    th = _table(c, rows, MARGIN_X, y, [20 * mm, 16 * mm, 25 * mm, 26 * mm, 22 * mm, 25 * mm, 22 * mm, CONTENT_W - 156 * mm], header=True)
     return y - th - 6 * mm
 
 
@@ -762,8 +762,8 @@ def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
     return y - box_h - 7 * mm
 
 
-def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict):
-    y = _draw_header(c, cert, 2, 3 if cert.get("requires_hydraulic_chart") else 2)
+def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict, page_no: int = 2, total_pages: int = 2):
+    y = _draw_header(c, cert, page_no, total_pages)
     tests = detail.get("test_rows", []) or []
     metrology = detail.get("metrology_results", []) or []
     sensor_loop = detail.get("sensor_loop_results", []) or []
@@ -896,9 +896,22 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     c.setAuthor(settings.COMPANY_NAME)
     c.setSubject(title)
 
-    _draw_page_1(c, cert, patterns)
+    # El formulario de manómetros admite ambas tablas. Antes se guardaban las
+    # dos, pero el PDF omitía los resultados de presión/control de esta plantilla.
+    # Se imprimen antes de la metrología para conservar las firmas al final.
+    pressure_rows = detail.get("test_rows") or []
+    pressure_pages = []
+    if cert.get("template_type") == "pressure_gauge" and pressure_rows:
+        pressure_pages = [pressure_rows[i:i + 10] for i in range(0, len(pressure_rows), 10)]
+    total_pages = 2 + len(pressure_pages)
+    _draw_page_1(c, cert, patterns, total_pages)
     c.showPage()
-    _draw_page_2(c, cert, detail)
+    for page_no, rows in enumerate(pressure_pages, start=2):
+        y = _draw_header(c, cert, page_no, total_pages)
+        _draw_simple_pressure_table(c, rows, y)
+        _draw_footer(c)
+        c.showPage()
+    _draw_page_2(c, cert, detail, total_pages, total_pages)
     if cert.get("requires_hydraulic_chart"):
         c.showPage()
         _draw_annex_a_page(c, cert, detail)

@@ -50,6 +50,8 @@ class CertificateFrequencyTests(unittest.TestCase):
             certificate_number="SIP 26-999", client_id=CLIENT_ID,
             template_type="general_pressure", test_frequency_months=6,
             calibration_date=date(2026, 9, 18), expiration_date=date(2027, 3, 18),
+            test_rows=[{"row_order": 1, "pressure_label": "Prueba", "range_value": 1.05, "unit": "KG"}],
+            metrology_results=[{"row_order": 1, "point_label": "Punto 1", "pattern_pressure": 1.05, "instrument_reading": 1, "unit": "KG"}],
         )
         for operation in ("create", "update"):
             with self.subTest(operation=operation):
@@ -61,7 +63,7 @@ class CertificateFrequencyTests(unittest.TestCase):
                     service, "is_md_client", return_value=True
                 ), patch.object(service, "get_client_template_requirement", return_value={"frequency_months": 12}), patch.object(
                     service, "certificate_detail", return_value={}
-                ), patch.object(service, "ensure_pattern_usage_tx"), patch.object(service, "save_specific_results_tx"):
+                ), patch.object(service, "ensure_pattern_usage_tx"):
                     if operation == "create":
                         with patch.object(service, "snapshot_client_and_equipment", return_value=({"name": "MD"}, None)), patch.object(
                             service, "fetch_one", side_effect=[None, {"h": "test-hash"}]
@@ -80,6 +82,10 @@ class CertificateFrequencyTests(unittest.TestCase):
                 saved = dict(zip(columns, values))
                 self.assertEqual(saved["test_frequency_months"], 6)
                 self.assertEqual(saved["expiration_date"], date(2027, 3, 18))
+                inserts = {call.args[0].split("insert into ")[1].split()[0]: call.args[1]
+                           for call in cursor.execute.call_args_list if "insert into " in call.args[0]}
+                self.assertEqual(inserts["certificate_test_rows"][3:5], [1.05, "KG"])
+                self.assertEqual(inserts["certificate_metrology_results"][4:6], [1.05, 1])
 
     def test_regenerated_pdf_uses_saved_frequency_and_fresh_url(self):
         cert = {"certificate_number": "SIP 26-999", "test_frequency_months": 6}

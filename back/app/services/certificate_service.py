@@ -108,7 +108,6 @@ def apply_client_requirements(data: dict):
     data["responsible_name"] = data.get("responsible_name") or DEFAULT_RESPONSIBLE_NAME
     data["responsible_license"] = data.get("responsible_license") or DEFAULT_RESPONSIBLE_LICENSE
     data["ambient_temperature"] = data.get("ambient_temperature") or DEFAULT_AMBIENT_TEMPERATURE
-    data["test_frequency_months"] = data.get("test_frequency_months") or DEFAULT_FREQUENCY_MONTHS
 
     data["md_required"] = is_md_client(client_id)
     # El gráfico/carta hidráulica nunca es obligatorio.
@@ -117,13 +116,13 @@ def apply_client_requirements(data: dict):
     req = get_client_template_requirement(client_id, template_type)
     if req:
         data["md_required"] = True
-        if req.get("frequency_months"):
-            data["test_frequency_months"] = req.get("frequency_months")
 
-    # Para MD la frecuencia se fuerza a 12 meses, salvo que exista una regla específica
-    # con una frecuencia más estricta en client_certificate_requirements.
-    if data["md_required"] and not (req and req.get("frequency_months")):
-        data["test_frequency_months"] = 12
+    # La frecuencia elegida en el certificado prevalece. La configuración del
+    # cliente y los 12 meses son valores predeterminados, no reemplazos al guardar.
+    if data.get("test_frequency_months") is None:
+        data["test_frequency_months"] = (
+            (req or {}).get("frequency_months") or DEFAULT_FREQUENCY_MONTHS
+        )
 
     data["requires_hydraulic_chart"] = False
     return data

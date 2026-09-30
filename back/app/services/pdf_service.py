@@ -788,9 +788,7 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict, page_no: int = 2, t
     y -= 13 * mm
 
     if template == "pressure_gauge":
-        # Los resultados de presión/control se imprimen en las páginas previas.
-        # La tabla metrológica se conserva en el legajo, pero no se publica.
-        pass
+        y = _draw_simple_pressure_table(c, tests, y)
     elif template == "pressure_head_sensor":
         y = _draw_sensor_loop_table(c, sensor_loop, y)
     elif template == "relief_valve_set":
@@ -897,12 +895,14 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     c.setAuthor(settings.COMPANY_NAME)
     c.setSubject(title)
 
-    # Los resultados de presión/control se imprimen en páginas propias.
-    # El resumen y las firmas permanecen al final, sin tabla metrológica.
+    # La última tanda de resultados comparte página con el resumen y las firmas.
+    # Solo se crean páginas previas cuando hay más de diez resultados.
     pressure_rows = detail.get("test_rows") or []
     pressure_pages = []
     if cert.get("template_type") == "pressure_gauge" and pressure_rows:
-        pressure_pages = [pressure_rows[i:i + 10] for i in range(0, len(pressure_rows), 10)]
+        chunks = [pressure_rows[i:i + 10] for i in range(0, len(pressure_rows), 10)]
+        pressure_pages = chunks[:-1]
+        detail = {**detail, "test_rows": chunks[-1]}
     total_pages = 2 + len(pressure_pages)
     _draw_page_1(c, cert, patterns, total_pages)
     c.showPage()

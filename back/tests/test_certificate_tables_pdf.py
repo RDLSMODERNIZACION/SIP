@@ -44,7 +44,7 @@ def sample_detail(template="pressure_gauge", count=3):
 @unittest.skipUnless(shutil.which("pdftotext"), "Requires Poppler pdftotext")
 class CertificateTablesPdfTests(unittest.TestCase):
     def test_pressure_results_remain_and_metrology_is_hidden(self):
-        for count in (3, 12):
+        for count in (3, 7, 10, 12):
             with self.subTest(count=count), tempfile.TemporaryDirectory() as tmp:
                 with patch.object(pdf_service, "CERT_DIR", Path(tmp)), patch.object(
                     pdf_service, "certificate_detail", return_value=sample_detail(count=count)
@@ -64,7 +64,8 @@ class CertificateTablesPdfTests(unittest.TestCase):
                 self.assertNotIn("Tabla metrológica", text)
                 self.assertNotIn("1.55 KG", text)
                 pages = text.split("\f")[:-1]
-                self.assertEqual(len(pages), 3 if count == 3 else 4)
+                self.assertEqual(len(pages), 2 if count <= 10 else 3)
+                self.assertIn(f"CONTROL-{count}", pages[-1])
                 self.assertIn("EMISIÓN Y CONTROL", pages[-1])
 
     def test_generic_certificate_keeps_two_pages(self):

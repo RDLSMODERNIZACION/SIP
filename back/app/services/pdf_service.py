@@ -656,7 +656,7 @@ def _draw_page_1(c: canvas.Canvas, cert: dict, patterns: list[dict], total_pages
 
 def _draw_simple_pressure_table(c: canvas.Canvas, tests: list[dict], y: float) -> float:
     y = _section_title(c, "Resultados de presión / control", y)
-    rows = [[_p("Presión", PSB), _p("Rango / Unidad", PSB), _p("Criterio", PSB), _p("Resultado", PSB), _p("Observaciones", PSB)]]
+    rows = [[_p("Presión", PSB), _p("Patrón", PSB), _p("Instrumento", PSB), _p("Resultado", PSB), _p("Observaciones", PSB)]]
     for t in tests[:10]:
         rows.append([
             _p(t.get("pressure_label"), PS),

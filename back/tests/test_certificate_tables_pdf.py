@@ -32,7 +32,7 @@ def sample_detail(template="pressure_gauge", count=3):
                         "element": "Manometro", "test_frequency_months": 6,
                         "approved_result": True, "final_comments": "Prueba de presión/control"},
         "test_rows": [{"pressure_label": f"CONTROL-{i + 1}", "range_value": 1.05,
-                       "unit": "KG", "acceptance_criteria": "SIN ERROR",
+                       "unit": "KG", "acceptance_criteria": "1.02",
                        "result": "POSITIVO", "observations": "OK"} for i in range(count)],
         "metrology_results": [{"point_label": f"METRO-{i + 1}", "direction": "ascendente",
                               "pattern_pressure": value, "instrument_reading": reading,
@@ -56,6 +56,11 @@ class CertificateTablesPdfTests(unittest.TestCase):
                 for i in range(4):
                     self.assertNotIn(f"METRO-{i + 1}", text)
                 self.assertIn("1.05 KG", text)
+                self.assertIn("Patrón", text)
+                self.assertIn("Instrumento", text)
+                self.assertIn("1.02", text)
+                self.assertNotIn("Criterio", text)
+                self.assertNotIn("Rango / Unidad", text)
                 self.assertNotIn("Tabla metrológica", text)
                 self.assertNotIn("1.55 KG", text)
                 pages = text.split("\f")[:-1]

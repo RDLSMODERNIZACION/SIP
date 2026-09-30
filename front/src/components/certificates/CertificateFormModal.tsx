@@ -216,7 +216,7 @@ function defaultForm(certificateNumber = ""): CertificateCreatePayload {
         pressure_label: "PRESIÓN DE PRUEBA N°1",
         range_value: 46,
         unit: "PSI",
-        acceptance_criteria: "SIN ERROR",
+        acceptance_criteria: "",
         result: "POSITIVO",
         observations: "OK",
       },
@@ -225,7 +225,7 @@ function defaultForm(certificateNumber = ""): CertificateCreatePayload {
         pressure_label: "PRESIÓN DE PRUEBA N°2",
         range_value: 93,
         unit: "PSI",
-        acceptance_criteria: "SIN ERROR",
+        acceptance_criteria: "",
         result: "POSITIVO",
         observations: "OK",
       },
@@ -234,7 +234,7 @@ function defaultForm(certificateNumber = ""): CertificateCreatePayload {
         pressure_label: "PRESIÓN DE PRUEBA N°3",
         range_value: 185,
         unit: "PSI",
-        acceptance_criteria: "SIN ERROR",
+        acceptance_criteria: "",
         result: "POSITIVO",
         observations: "OK",
       },
@@ -483,7 +483,7 @@ export function CertificateFormModal({
             pressure_label: textValue(row) || fallback?.pressure_label || `PRESIÓN DE PRUEBA N°${index}`,
             range_value: parseNullableNumber(fallback?.range_value),
             unit: preferredUnit,
-            acceptance_criteria: fallback?.acceptance_criteria || (index === 0 ? undefined : "SIN ERROR"),
+            acceptance_criteria: "",
             result: fallback?.result || (index === 0 ? undefined : "POSITIVO"),
             observations: fallback?.observations || (index === 0 ? undefined : "OK"),
           };
@@ -1098,8 +1098,8 @@ function effectiveRequiresHydraulicChart(templateCode = String(form.template_typ
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="p-3">Presión</th>
-                  <th className="p-3">Rango / Unidad</th>
-                  <th className="p-3">Criterio aceptación</th>
+                  <th className="p-3">Patrón</th>
+                  <th className="p-3">Instrumento</th>
                   <th className="p-3">Resultado</th>
                   <th className="p-3">Observaciones</th>
                 </tr>

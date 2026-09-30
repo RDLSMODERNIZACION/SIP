@@ -1,11 +1,22 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
+from ..services.public_validation import public_validation_url
 from ..db import fetch_one, fetch_all, execute
 
 router = APIRouter(prefix="/public", tags=["Public validation"])
 
 
 @router.get("/validate/{validation_hash}")
-def validate_certificate(validation_hash: str):
+def validate_certificate(validation_hash: str, request: Request, response: Response):
+    # Old printed QR codes point here. Browsers need the public page;
+    # API consumers (including that page) still receive JSON.
+    response.headers["Vary"] = "Accept"
+    if "text/html" in request.headers.get("accept", "").lower():
+        return RedirectResponse(
+            public_validation_url(validation_hash),
+            status_code=307,
+            headers={"Vary": "Accept"},
+        )
     cert = fetch_one("select * from v_certificates_status where validation_hash=%s", [validation_hash])
     if not cert:
         raise HTTPException(status_code=404, detail="Certificado no encontrado o hash inválido")

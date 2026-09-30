@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     PUBLIC_BASE_URL: str = "http://localhost:8000"
+    PUBLIC_FRONTEND_URL: str = "https://www.sipinstrumentacion.com"
     CORS_ORIGINS: str = "*"
 
     COMPANY_NAME: str = "SIP Instrumentación"

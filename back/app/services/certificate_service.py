@@ -4,6 +4,7 @@ import re
 from fastapi import HTTPException, UploadFile
 from ..db import fetch_one, fetch_all, execute, get_conn
 from ..config import settings
+from .public_validation import public_validation_url
 
 
 DEFAULT_FREQUENCY_MONTHS = 12
@@ -349,7 +350,7 @@ def create_certificate(payload, user):
 
     validation_hash = fetch_one("select generate_certificate_validation_hash(%s) as h", [data["certificate_number"]])["h"]
     data["validation_hash"] = validation_hash
-    data["public_validation_url"] = f"{settings.PUBLIC_BASE_URL}/public/validate/{validation_hash}"
+    data["public_validation_url"] = public_validation_url(validation_hash)
 
     cols = list(data.keys())
     placeholders = ",".join(["%s"] * len(cols))

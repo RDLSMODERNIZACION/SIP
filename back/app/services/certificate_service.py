@@ -260,7 +260,9 @@ def list_certificates(user, status=None, client_id=None, q=None):
     sql = "select * from v_certificates_status"
     if where:
         sql += " where " + " and ".join(where)
-    sql += " order by created_at desc limit 500"
+    # This endpoint returns the complete list (also used by dashboard totals).
+    # A silent cap hides older certificates until a narrower filter is applied.
+    sql += " order by created_at desc, id desc"
     return fetch_all(sql, params)
 
 

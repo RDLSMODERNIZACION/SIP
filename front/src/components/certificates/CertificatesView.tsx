@@ -25,7 +25,10 @@ export default function CertificatesView() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Certificate | null>(null);
   const [creating, setCreating] = useState(false);
-  const [sort, setSort] = useState<{ key: DateSortKey; direction: "asc" | "desc" } | null>(null);
+  const [sort, setSort] = useState<{ key: DateSortKey; direction: "asc" | "desc" } | null>({
+    key: "calibration_date",
+    direction: "desc",
+  });
 
   function toggleSort(key: DateSortKey) {
     setSort((current) => ({

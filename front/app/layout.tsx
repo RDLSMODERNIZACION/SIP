@@ -3,7 +3,12 @@ import "./globals.css";
 import { AuthProvider } from "@/src/context/AuthContext";
 
 export const metadata: Metadata = {
-  title: "SIP Certificados",
+  title: "SIP Instrumentación | Certificados",
+  icons: {
+    icon: "/sip-logo.png",
+    shortcut: "/sip-logo.png",
+    apple: "/sip-logo.png",
+  },
   description: "Sistema de certificados digitales con aprobación y validación pública.",
 };
 

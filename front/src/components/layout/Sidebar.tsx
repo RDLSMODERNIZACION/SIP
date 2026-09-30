@@ -1,5 +1,6 @@
 "use client";
 
+import { SipLogo } from "@/src/components/branding/SipLogo";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/src/context/AuthContext";
@@ -22,7 +23,7 @@ export function Sidebar() {
     <aside className="no-print fixed inset-y-0 left-0 z-40 hidden w-72 border-r border-slate-200 bg-slate-950 text-white lg:block">
       <div className="flex h-full flex-col">
         <div className="border-b border-white/10 p-6">
-          <div className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">SIP</div>
+          <Link href="/" aria-label="SIP Instrumentación — Inicio"><SipLogo className="w-full" /></Link>
           <div className="mt-2 text-xl font-bold">Certificados</div>
           <p className="mt-2 text-sm leading-5 text-slate-400">Gestión digital, aprobación y trazabilidad técnica.</p>
         </div>

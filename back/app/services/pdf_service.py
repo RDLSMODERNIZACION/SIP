@@ -16,6 +16,7 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from ..config import settings
+from .public_validation import public_validation_url
 from ..db import execute
 from .certificate_service import certificate_detail
 
@@ -153,12 +154,12 @@ def _num_unit(value: Any, unit: Any = None) -> str:
 
 
 def _validation_payload(cert: dict) -> str:
+    validation_hash = _v(cert.get("validation_hash")).strip()
+    if validation_hash:
+        return public_validation_url(validation_hash)
     public_url = _v(cert.get("public_validation_url")).strip()
     if public_url:
         return public_url if public_url.startswith("http") else f"{settings.PUBLIC_BASE_URL}{public_url}"
-    validation_hash = _v(cert.get("validation_hash")).strip()
-    if validation_hash:
-        return f"{settings.PUBLIC_BASE_URL}/public/validate/{validation_hash}"
     return _v(cert.get("certificate_number")).strip() or "SIP-CERTIFICADO"
 
 

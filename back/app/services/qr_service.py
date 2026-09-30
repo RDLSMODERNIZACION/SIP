@@ -1,6 +1,7 @@
 from pathlib import Path
 import qrcode
 from ..config import settings
+from .public_validation import public_validation_url
 from ..db import execute
 from .certificate_service import get_certificate_or_404
 
@@ -14,7 +15,7 @@ def generate_qr(cert_id: str, user) -> str:
     validation_hash = cert.get("validation_hash")
     if not validation_hash:
         raise ValueError("El certificado no tiene hash de validación")
-    url = f"{settings.PUBLIC_BASE_URL}/public/validate/{validation_hash}"
+    url = public_validation_url(validation_hash)
     filename = f"{validation_hash}.png"
     filepath = QR_DIR / filename
     img = qrcode.make(url)

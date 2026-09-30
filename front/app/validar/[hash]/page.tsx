@@ -4,7 +4,7 @@ import type { PublicCertificateValidation } from "@/src/types";
 
 async function getValidation(hash: string): Promise<{ data?: PublicCertificateValidation; error?: string }> {
   try {
-    const res = await fetch(`${API_BASE_URL}/public/validate/${hash}`, { cache: "no-store" });
+    const res = await fetch(`${API_BASE_URL}/public/validate/${hash}`, { cache: "no-store", headers: { Accept: "application/json" } });
     if (!res.ok) {
       const json = await res.json().catch(() => null);
       return { error: json?.detail || "Certificado no encontrado" };

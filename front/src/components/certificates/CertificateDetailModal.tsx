@@ -433,8 +433,8 @@ export function CertificateDetailModal({
                   <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                     <tr>
                       <th className="p-3">Prueba</th>
-                      <th className="p-3">Valor</th>
-                      <th className="p-3">Criterio</th>
+                      <th className="p-3">Patrón</th>
+                      <th className="p-3">Instrumento</th>
                       <th className="p-3">Resultado</th>
                       <th className="p-3">Obs.</th>
                     </tr>

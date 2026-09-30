@@ -188,10 +188,7 @@ def validate_certificate_before_approval(cert_id: str, cert: dict):
 
     # Gráfico/carta hidráulica: opcional, no bloquea aprobación.
 
-    if template_type == "pressure_gauge":
-        rows = fetch_all("select * from certificate_metrology_results where certificate_id=%s", [cert_id])
-        if len(rows) == 0:
-            raise HTTPException(status_code=400, detail="Para manómetros se requiere tabla metrológica patrón vs instrumento.")
+    # La tabla metrológica ya no forma parte del certificado de manómetros.
 
     if template_type == "pressure_head_sensor":
         rows = fetch_all("select * from certificate_sensor_loop_results where certificate_id=%s", [cert_id])

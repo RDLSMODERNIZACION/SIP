@@ -1,5 +1,6 @@
 "use client";
 
+import { SipLogo } from "@/src/components/branding/SipLogo";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/src/context/AuthContext";
@@ -36,7 +37,7 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-100 p-4">
       <section className="grid w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-soft md:grid-cols-[1.05fr_0.95fr]">
         <div className="bg-slate-950 p-8 text-white md:p-10">
-          <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">SIP Instrumentación</div>
+          <SipLogo className="w-64" />
           <h1 className="mt-6 text-3xl font-bold leading-tight">Sistema de certificados digitales</h1>
           <p className="mt-4 text-sm leading-6 text-slate-300">
             Emisión, aprobación, control de vencimientos, trazabilidad de patrones y validación pública por QR.

@@ -1,5 +1,6 @@
 "use client";
 
+import { SipLogo } from "@/src/components/branding/SipLogo";
 import { useAuth } from "@/src/context/AuthContext";
 import { Button } from "@/src/components/ui/Button";
 
@@ -9,6 +10,7 @@ export function Header({ title, description }: { title: string; description?: st
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur md:px-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
+          <SipLogo className="mb-2 w-32 lg:hidden" />
           <h1 className="text-xl font-bold tracking-tight text-slate-950">{title}</h1>
           {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
         </div>

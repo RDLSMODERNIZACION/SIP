@@ -1,3 +1,4 @@
+import { SipLogo } from "@/src/components/branding/SipLogo";
 import { API_BASE_URL, resolveApiUrl } from "@/src/lib/config";
 import { formatDate } from "@/src/lib/format";
 import type { PublicCertificateValidation } from "@/src/types";
@@ -23,7 +24,7 @@ export default async function ValidatePage({ params }: { params: { hash: string 
     <main className="min-h-screen bg-slate-100 p-4 md:p-8">
       <section className="mx-auto max-w-4xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-soft">
         <div className={`p-8 text-white ${valid ? "bg-emerald-800" : "bg-red-800"}`}>
-          <div className="text-xs font-semibold uppercase tracking-[0.25em] opacity-80">SIP Instrumentación</div>
+          <SipLogo className="w-48" />
           <h1 className="mt-4 text-3xl font-bold">{valid ? "Certificado válido" : "Certificado no válido"}</h1>
           <p className="mt-2 text-sm opacity-90">Validación pública por QR contra la base de datos autorizada.</p>
         </div>

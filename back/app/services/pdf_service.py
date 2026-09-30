@@ -344,6 +344,15 @@ def _section_title(c: canvas.Canvas, text: str, y: float) -> float:
 
 
 def _table(c: canvas.Canvas, rows: list[list[Any]], x: float, top_y: float, col_widths: list[float], header: bool = False) -> float:
+    if header and rows:
+        # Paragraphs keep their own text color and override TableStyle.TEXTCOLOR.
+        # Clone their styles so dark headers are white without changing body cells.
+        rows = [[
+            Paragraph(cell.text, ParagraphStyle(
+                "TableHeaderWhite", parent=cell.style, textColor=WHITE,
+            )) if isinstance(cell, Paragraph) else cell
+            for cell in rows[0]
+        ], *rows[1:]]
     table = Table(rows, colWidths=col_widths, repeatRows=1 if header else 0)
     style = [
         ("GRID", (0, 0), (-1, -1), 0.3, LINE),

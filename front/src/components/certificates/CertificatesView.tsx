@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/src/components/layout/AppShell";
 import { Button } from "@/src/components/ui/Button";
 import { Card, CardContent, CardHeader } from "@/src/components/ui/Card";
@@ -14,6 +14,8 @@ import { formatDate } from "@/src/lib/format";
 import { useAuth } from "@/src/context/AuthContext";
 import type { Certificate } from "@/src/types";
 
+type DateSortKey = "calibration_date" | "expiration_date";
+
 export default function CertificatesView() {
   const { hasRole } = useAuth();
   const [certificates, setCertificates] = useState<Certificate[]>([]);
@@ -23,6 +25,43 @@ export default function CertificatesView() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Certificate | null>(null);
   const [creating, setCreating] = useState(false);
+  const [sort, setSort] = useState<{ key: DateSortKey; direction: "asc" | "desc" } | null>(null);
+
+  function toggleSort(key: DateSortKey) {
+    setSort((current) => ({
+      key,
+      direction: current?.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  }
+
+  const sortedCertificates = useMemo(() => {
+    if (!sort) return certificates;
+    return [...certificates].sort((a, b) => {
+      const first = a[sort.key] ? Date.parse(a[sort.key]!) : NaN;
+      const second = b[sort.key] ? Date.parse(b[sort.key]!) : NaN;
+      // Keep missing or invalid dates last in either direction.
+      if (Number.isNaN(first)) return Number.isNaN(second) ? 0 : 1;
+      if (Number.isNaN(second)) return -1;
+      return (first - second) * (sort.direction === "asc" ? 1 : -1);
+    });
+  }, [certificates, sort]);
+
+  function dateSortHeader(key: DateSortKey, label: string) {
+    const active = sort?.key === key;
+    const ascending = active && sort.direction === "asc";
+    return (
+      <th scope="col" className="p-4" aria-sort={active ? (ascending ? "ascending" : "descending") : "none"}>
+        <button
+          type="button"
+          onClick={() => toggleSort(key)}
+          className={`inline-flex items-center gap-2 rounded text-left uppercase tracking-wide hover:text-slate-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-slate-600 ${active ? "text-slate-950" : ""}`}
+          aria-label={`${label}: ordenar de ${ascending ? "más reciente a más antigua" : "más antigua a más reciente"}`}
+        >
+          {label}<span aria-hidden="true">{active ? (ascending ? "↑" : "↓") : "↕"}</span>
+        </button>
+      </th>
+    );
+  }
 
   async function load() {
     try {
@@ -82,14 +121,14 @@ export default function CertificatesView() {
                     <th className="p-4">Cliente</th>
                     <th className="p-4">Equipo</th>
                     <th className="p-4">Serie</th>
-                    <th className="p-4">Calibración</th>
-                    <th className="p-4">Vencimiento</th>
+                    {dateSortHeader("calibration_date", "Calibración")}
+                    {dateSortHeader("expiration_date", "Vencimiento")}
                     <th className="p-4">Estado</th>
                     <th className="p-4"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {certificates.map((cert) => (
+                  {sortedCertificates.map((cert) => (
                     <tr key={cert.id} className="border-t border-slate-100 hover:bg-slate-50/70">
                       <td className="p-4 font-bold text-slate-950">{cert.certificate_number}</td>
                       <td className="p-4"><div className="font-semibold">{cert.client_name}</div><div className="text-xs text-slate-500">CUIT {cert.client_cuit || "—"}</div></td>

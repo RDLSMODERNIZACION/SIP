@@ -684,13 +684,6 @@ function effectiveRequiresHydraulicChart(templateCode = String(form.template_typ
 
     if (templateCode === "pressure_gauge") {
       patch.test_type = "Calibración por comparación directa";
-      patch.metrology_results = [
-        { row_order: 1, point_label: "Punto 1", direction: "ascendente", unit: form.unit || "PSI" },
-        { row_order: 2, point_label: "Punto 2", direction: "ascendente", unit: form.unit || "PSI" },
-        { row_order: 3, point_label: "Punto 3", direction: "ascendente", unit: form.unit || "PSI" },
-        { row_order: 4, point_label: "Punto 4", direction: "descendente", unit: form.unit || "PSI" },
-        { row_order: 5, point_label: "Punto 5", direction: "descendente", unit: form.unit || "PSI" },
-      ];
     }
 
     if (templateCode === "pressure_head_sensor") {
@@ -709,16 +702,6 @@ function effectiveRequiresHydraulicChart(templateCode = String(form.template_typ
     }
 
     setForm((prev) => ({ ...prev, ...patch }));
-  }
-
-  function updateMetrologyRow(index: number, key: string, value: string) {
-    setForm((prev) => {
-      const rows = [...(prev.metrology_results || [])];
-      const row = { ...(rows[index] || { row_order: index + 1 }) } as any;
-      row[key] = ["pattern_pressure", "instrument_reading", "error_value", "max_allowed_error", "uncertainty"].includes(key) ? (value === "" ? null : Number(value)) : value;
-      rows[index] = row;
-      return { ...prev, metrology_results: rows };
-    });
   }
 
   function updateSensorRow(index: number, key: string, value: string) {
@@ -1154,18 +1137,6 @@ function effectiveRequiresHydraulicChart(templateCode = String(form.template_typ
             </table>
           </div>
         </section>
-
-        {form.template_type === "pressure_gauge" ? (
-          <section className="space-y-4">
-            <h3 className="text-sm font-bold text-slate-900">Tabla metrológica - Patrón vs instrumento MD</h3>
-            <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="w-full min-w-[980px] text-sm">
-                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="p-3">Punto</th><th className="p-3">Dir.</th><th className="p-3">Patrón</th><th className="p-3">Instrumento MD</th><th className="p-3">Error</th><th className="p-3">Error adm.</th><th className="p-3">Incert.</th><th className="p-3">Unidad</th><th className="p-3">Resultado</th></tr></thead>
-                <tbody>{(form.metrology_results || []).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="p-2"><input className={inputClass} value={row.point_label || ""} onChange={(e) => updateMetrologyRow(index,"point_label",e.target.value)} /></td><td className="p-2"><select className={inputClass} value={row.direction || "unico"} onChange={(e) => updateMetrologyRow(index,"direction",e.target.value)}><option value="unico">Único</option><option value="ascendente">Ascendente</option><option value="descendente">Descendente</option></select></td><td className="p-2"><input className={inputClass} type="number" step="any" value={row.pattern_pressure ?? ""} onChange={(e) => updateMetrologyRow(index,"pattern_pressure",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" step="any" value={row.instrument_reading ?? ""} onChange={(e) => updateMetrologyRow(index,"instrument_reading",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" step="any" value={row.error_value ?? ""} onChange={(e) => updateMetrologyRow(index,"error_value",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" step="any" value={row.max_allowed_error ?? ""} onChange={(e) => updateMetrologyRow(index,"max_allowed_error",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" step="any" value={row.uncertainty ?? ""} onChange={(e) => updateMetrologyRow(index,"uncertainty",e.target.value)} /></td><td className="p-2"><input className={inputClass} value={row.unit || form.unit || "PSI"} onChange={(e) => updateMetrologyRow(index,"unit",e.target.value)} /></td><td className="p-2"><input className={inputClass} value={row.result || ""} onChange={(e) => updateMetrologyRow(index,"result",e.target.value)} /></td></tr>)}</tbody>
-              </table>
-            </div>
-          </section>
-        ) : null}
 
         {form.template_type === "pressure_head_sensor" ? (
           <section className="space-y-4"><h3 className="text-sm font-bold text-slate-900">Tabla de lazo eléctrico</h3><div className="overflow-x-auto rounded-2xl border border-slate-200"><table className="w-full min-w-[980px] text-sm"><thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500"><tr><th className="p-3">Presión</th><th className="p-3">Patrón</th><th className="p-3">Señal esperada</th><th className="p-3">Señal medida</th><th className="p-3">Unidad señal</th><th className="p-3">Lectura pantalla</th><th className="p-3">Error</th><th className="p-3">Resultado</th></tr></thead><tbody>{(form.sensor_loop_results || []).map((row, index) => <tr key={index} className="border-t border-slate-100"><td className="p-2"><input className={inputClass} type="number" value={row.pressure_applied ?? ""} onChange={(e) => updateSensorRow(index,"pressure_applied",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.pattern_reading ?? ""} onChange={(e) => updateSensorRow(index,"pattern_reading",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.expected_signal ?? ""} onChange={(e) => updateSensorRow(index,"expected_signal",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.measured_signal ?? ""} onChange={(e) => updateSensorRow(index,"measured_signal",e.target.value)} /></td><td className="p-2"><input className={inputClass} value={row.signal_unit || "mA"} onChange={(e) => updateSensorRow(index,"signal_unit",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.display_reading ?? ""} onChange={(e) => updateSensorRow(index,"display_reading",e.target.value)} /></td><td className="p-2"><input className={inputClass} type="number" value={row.error_value ?? ""} onChange={(e) => updateSensorRow(index,"error_value",e.target.value)} /></td><td className="p-2"><input className={inputClass} value={row.result || ""} onChange={(e) => updateSensorRow(index,"result",e.target.value)} /></td></tr>)}</tbody></table></div></section>

@@ -765,7 +765,6 @@ def _draw_emission_control(c: canvas.Canvas, cert: dict, y: float):
 def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict, page_no: int = 2, total_pages: int = 2):
     y = _draw_header(c, cert, page_no, total_pages)
     tests = detail.get("test_rows", []) or []
-    metrology = detail.get("metrology_results", []) or []
     sensor_loop = detail.get("sensor_loop_results", []) or []
     relief = detail.get("relief_valve_result")
     hydro = detail.get("hydrostatic_result")
@@ -789,7 +788,9 @@ def _draw_page_2(c: canvas.Canvas, cert: dict, detail: dict, page_no: int = 2, t
     y -= 13 * mm
 
     if template == "pressure_gauge":
-        y = _draw_metrology_table(c, metrology, y)
+        # Los resultados de presión/control se imprimen en las páginas previas.
+        # La tabla metrológica se conserva en el legajo, pero no se publica.
+        pass
     elif template == "pressure_head_sensor":
         y = _draw_sensor_loop_table(c, sensor_loop, y)
     elif template == "relief_valve_set":
@@ -896,9 +897,8 @@ def generate_certificate_pdf(cert_id: str, user) -> str:
     c.setAuthor(settings.COMPANY_NAME)
     c.setSubject(title)
 
-    # El formulario de manómetros admite ambas tablas. Antes se guardaban las
-    # dos, pero el PDF omitía los resultados de presión/control de esta plantilla.
-    # Se imprimen antes de la metrología para conservar las firmas al final.
+    # Los resultados de presión/control se imprimen en páginas propias.
+    # El resumen y las firmas permanecen al final, sin tabla metrológica.
     pressure_rows = detail.get("test_rows") or []
     pressure_pages = []
     if cert.get("template_type") == "pressure_gauge" and pressure_rows:

@@ -8,13 +8,29 @@ from unittest.mock import patch
 
 os.environ.setdefault("DATABASE_URL", "postgresql://unused:unused@localhost/unused")
 from app.services import pdf_service
+from app.services import certificate_service
+
+
+class CertificateApprovalTests(unittest.TestCase):
+    def test_pressure_gauge_can_be_approved_without_metrology(self):
+        with patch.object(certificate_service, "fetch_all", return_value=[]):
+            certificate_service.validate_certificate_before_approval(
+                "test", {"template_type": "pressure_gauge"}
+            )
+
+    def test_sensor_still_requires_its_results(self):
+        with patch.object(certificate_service, "fetch_all", return_value=[]):
+            with self.assertRaises(certificate_service.HTTPException):
+                certificate_service.validate_certificate_before_approval(
+                    "test", {"template_type": "pressure_head_sensor"}
+                )
 
 
 def sample_detail(template="pressure_gauge", count=3):
     return {
         "certificate": {"certificate_number": "SIP TEST", "template_type": template,
                         "element": "Manometro", "test_frequency_months": 6,
-                        "approved_result": True, "final_comments": "Prueba de ambas tablas"},
+                        "approved_result": True, "final_comments": "Prueba de presión/control"},
         "test_rows": [{"pressure_label": f"CONTROL-{i + 1}", "range_value": 1.05,
                        "unit": "KG", "acceptance_criteria": "SIN ERROR",
                        "result": "POSITIVO", "observations": "OK"} for i in range(count)],
@@ -27,7 +43,7 @@ def sample_detail(template="pressure_gauge", count=3):
 
 @unittest.skipUnless(shutil.which("pdftotext"), "Requires Poppler pdftotext")
 class CertificateTablesPdfTests(unittest.TestCase):
-    def test_both_tables_in_pdf_and_continuation_pages(self):
+    def test_pressure_results_remain_and_metrology_is_hidden(self):
         for count in (3, 12):
             with self.subTest(count=count), tempfile.TemporaryDirectory() as tmp:
                 with patch.object(pdf_service, "CERT_DIR", Path(tmp)), patch.object(
@@ -38,9 +54,10 @@ class CertificateTablesPdfTests(unittest.TestCase):
                 for i in range(count):
                     self.assertIn(f"CONTROL-{i + 1}", text)
                 for i in range(4):
-                    self.assertIn(f"METRO-{i + 1}", text)
+                    self.assertNotIn(f"METRO-{i + 1}", text)
                 self.assertIn("1.05 KG", text)
-                self.assertIn("1.55 KG", text)
+                self.assertNotIn("Tabla metrológica", text)
+                self.assertNotIn("1.55 KG", text)
                 pages = text.split("\f")[:-1]
                 self.assertEqual(len(pages), 3 if count == 3 else 4)
                 self.assertIn("EMISIÓN Y CONTROL", pages[-1])
